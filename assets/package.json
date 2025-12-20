@@ -1,0 +1,22 @@
+{
+  "name": "bb-liveview-assets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020",
+    "build:css": "cp css/dashboard.css ../priv/static/dashboard.css",
+    "build:all": "npm run build && npm run build:css",
+    "watch": "esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020 --watch",
+    "test": "echo 'No JS tests configured' && exit 0"
+  },
+  "dependencies": {
+    "phoenix": "file:../deps/phoenix",
+    "phoenix_html": "file:../deps/phoenix_html",
+    "phoenix_live_view": "file:../deps/phoenix_live_view",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

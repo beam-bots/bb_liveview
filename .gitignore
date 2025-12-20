@@ -26,3 +26,9 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 bb_liveview-*.tar
 
+# Dialyzer PLT files
+priv/plts/
+
+# Node.js dependencies
+/assets/node_modules/
+

@@ -42,7 +42,7 @@ jobs:
             echo "ERROR: Assets are out of date. Run 'mix assets.build' and commit the changes."
             exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: built-assets
           path: priv/static/

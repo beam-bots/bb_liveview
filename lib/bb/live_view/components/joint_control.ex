@@ -139,7 +139,7 @@ defmodule BB.LiveView.Components.JointControl do
 
   @impl Phoenix.LiveComponent
   def handle_event("set_position", %{"joint" => joint_name, "value" => value}, socket) do
-    position = String.to_float(value)
+    {position, ""} = Float.parse(value)
     joint_atom = String.to_existing_atom(joint_name)
 
     socket =

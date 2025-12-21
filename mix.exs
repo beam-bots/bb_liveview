@@ -47,7 +47,7 @@ defmodule BB.LiveView.MixProject do
     ]
   end
 
-  defp dialyzer, do: [plt_add_apps: [:ex_unit]]
+  defp dialyzer, do: [plt_add_apps: [:ex_unit, :mix]]
 
   defp package do
     [

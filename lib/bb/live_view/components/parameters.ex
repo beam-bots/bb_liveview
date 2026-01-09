@@ -16,6 +16,7 @@ defmodule BB.LiveView.Components.Parameters do
 
   alias BB.Dsl.Info, as: DslInfo
   alias BB.Parameter
+  alias BB.Robot.Runtime, as: RobotRuntime
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
@@ -496,10 +497,15 @@ defmodule BB.LiveView.Components.Parameters do
   defp format_type(other), do: inspect(other)
 
   defp discover_bridge_parameters(robot_module) do
+    simulation_mode = RobotRuntime.simulation_mode(robot_module)
+
     bridges =
       robot_module
       |> DslInfo.parameters()
       |> Enum.filter(&is_struct(&1, BB.Dsl.Bridge))
+      |> Enum.reject(fn bridge ->
+        simulation_mode != nil and bridge.simulation == :omit
+      end)
 
     tabs =
       Enum.map(bridges, fn bridge ->

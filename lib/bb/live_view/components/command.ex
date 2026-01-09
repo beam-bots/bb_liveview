@@ -254,7 +254,7 @@ defmodule BB.LiveView.Components.Command do
   end
 
   defp spawn_command_task(socket, cmd_atom, parsed_args) do
-    parent_pid = self()
+    liveview_pid = socket.root_pid
     component_id = socket.assigns.id
     robot_module = socket.assigns.robot_module
 
@@ -262,26 +262,24 @@ defmodule BB.LiveView.Components.Command do
       case RobotRuntime.execute(robot_module, cmd_atom, parsed_args) do
         {:ok, pid} ->
           result = BB.Command.await(pid, 30_000)
-          handle_command_result(result, parent_pid, component_id)
+          notify_command_complete(liveview_pid, component_id, result)
 
         {:error, _} = error ->
-          handle_command_result(error, parent_pid, component_id)
+          notify_command_complete(liveview_pid, component_id, error)
       end
     end)
   end
 
-  defp handle_command_result({:ok, result}, parent_pid, component_id) do
-    send_update(parent_pid, __MODULE__,
-      id: component_id,
-      event: {:command_result, inspect(result)}
-    )
+  defp notify_command_complete(liveview_pid, component_id, {:ok, result}) do
+    send(liveview_pid, {:command_complete, component_id, {:ok, inspect(result)}})
   end
 
-  defp handle_command_result({:error, reason}, parent_pid, component_id) do
-    send_update(parent_pid, __MODULE__,
-      id: component_id,
-      event: {:command_error, inspect(reason)}
-    )
+  defp notify_command_complete(liveview_pid, component_id, {:ok, result, _metadata}) do
+    send(liveview_pid, {:command_complete, component_id, {:ok, inspect(result)}})
+  end
+
+  defp notify_command_complete(liveview_pid, component_id, {:error, reason}) do
+    send(liveview_pid, {:command_complete, component_id, {:error, inspect(reason)}})
   end
 
   defp parse_value("true"), do: true

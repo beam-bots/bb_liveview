@@ -140,6 +140,25 @@ defmodule BB.LiveView.DashboardLive do
     {:noreply, socket}
   end
 
+  # Command completion notification from Task
+  def handle_info({:command_complete, component_id, {:ok, result}}, socket) do
+    send_update(Command,
+      id: component_id,
+      event: {:command_result, result}
+    )
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:command_complete, component_id, {:error, reason}}, socket) do
+    send_update(Command,
+      id: component_id,
+      event: {:command_error, reason}
+    )
+
+    {:noreply, socket}
+  end
+
   def handle_info(_msg, socket) do
     {:noreply, socket}
   end

@@ -17,7 +17,6 @@ defmodule BB.LiveView.Components.JointControl do
   use Phoenix.LiveComponent
 
   alias BB.Message
-  alias BB.Message.Actuator.Command
   alias BB.Robot.Runtime, as: RobotRuntime
 
   @impl Phoenix.LiveComponent
@@ -213,9 +212,8 @@ defmodule BB.LiveView.Components.JointControl do
 
   defp find_joint(joints, name), do: Enum.find(joints, fn j -> j.name == name end)
 
-  defp send_position_command(robot, joint_name, actuator_name, position) do
-    {:ok, msg} = Message.new(Command.Position, joint_name, position: position * 1.0)
-    BB.publish(robot, [:actuator, joint_name, actuator_name], msg)
+  defp send_position_command(robot, _joint_name, actuator_name, position) do
+    BB.Actuator.set_position!(robot, actuator_name, position)
   end
 
   defp send_simulated_position(socket, joint_name, position) do

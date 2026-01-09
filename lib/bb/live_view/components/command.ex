@@ -259,8 +259,14 @@ defmodule BB.LiveView.Components.Command do
     robot_module = socket.assigns.robot_module
 
     Task.start(fn ->
-      {:ok, task} = RobotRuntime.execute(robot_module, cmd_atom, parsed_args)
-      handle_command_result(Task.await(task, 30_000), parent_pid, component_id)
+      case RobotRuntime.execute(robot_module, cmd_atom, parsed_args) do
+        {:ok, pid} ->
+          result = BB.Command.await(pid, 30_000)
+          handle_command_result(result, parent_pid, component_id)
+
+        {:error, _} = error ->
+          handle_command_result(error, parent_pid, component_id)
+      end
     end)
   end
 

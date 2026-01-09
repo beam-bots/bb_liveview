@@ -102,7 +102,7 @@ defmodule BB.LiveView.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bb, "~> 0.7"},
+      {:bb, bb_dep("~> 0.13")},
       {:jason, "~> 1.4"},
       {:phoenix_live_view, "~> 1.0"},
       {:plug, "~> 1.16"},
@@ -129,4 +129,13 @@ defmodule BB.LiveView.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support", "dev"]
   defp elixirc_paths(:dev), do: ["lib", "test/support", "dev"]
   defp elixirc_paths(_), do: ["lib"]
+
+  defp bb_dep(default) do
+    case System.get_env("BB_VERSION") do
+      nil -> default
+      "local" -> [path: "../bb", override: true]
+      "main" -> [git: "https://github.com/beam-bots/bb.git", override: true]
+      version -> "~> #{version}"
+    end
+  end
 end

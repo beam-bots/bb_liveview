@@ -222,4 +222,7 @@ Visit `http://localhost:4000` to see the dashboard with a simulated WidowX-200 s
 
 ## Documentation
 
-Full documentation is available at [HexDocs](https://hexdocs.pm/bb_liveview).
+- [Your First Dashboard](https://hexdocs.pm/bb_liveview/01-your-first-dashboard.html) - getting started tutorial
+- [Customise Dashboard Layout](https://hexdocs.pm/bb_liveview/customise-dashboard-layout.html) - creating custom layouts
+
+Full API documentation is available at [HexDocs](https://hexdocs.pm/bb_liveview).

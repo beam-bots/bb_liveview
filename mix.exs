@@ -76,7 +76,8 @@ defmodule BB.LiveView.MixProject do
         ["README.md", "CHANGELOG.md"]
         |> Enum.concat(Path.wildcard("documentation/**/*.{md,livemd,cheatmd}")),
       groups_for_extras: [
-        Tutorials: ~r/tutorials\//
+        Tutorials: ~r/tutorials\//,
+        "How-to Guides": ~r/how-to\//
       ],
       source_ref: "main",
       source_url: "https://github.com/beam-bots/bb_liveview"

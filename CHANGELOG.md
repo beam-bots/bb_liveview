@@ -11,6 +11,14 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.2.4](https://github.com/beam-bots/bb_liveview/compare/v0.2.3...v0.2.4) (2026-01-18)
+
+
+
+### Documentation:
+
+*  add Diataxis-structured documentation (#10) by James Harton
+
 ## [v0.2.3](https://github.com/beam-bots/bb_liveview/compare/v0.2.2...v0.2.3) (2026-01-11)
 
 

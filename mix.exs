@@ -47,7 +47,7 @@ defmodule BB.LiveView.MixProject do
     ]
   end
 
-  defp dialyzer, do: [plt_add_apps: [:ex_unit]]
+  defp dialyzer, do: [plt_add_apps: [:ex_unit, :mix]]
 
   defp package do
     [
@@ -103,7 +103,7 @@ defmodule BB.LiveView.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bb, bb_dep("~> 0.13")},
+      {:bb, bb_dep("~> 0.15.3")},
       {:jason, "~> 1.4"},
       {:phoenix_live_view, "~> 1.0"},
       {:plug, "~> 1.16"},

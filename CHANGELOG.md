@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.2.5](https://github.com/beam-bots/bb_liveview/compare/v0.2.4...v0.2.5) (2026-05-13)
+
+
+
+
+### Improvements:
+
+* add `bb_liveview.install` igniter task (#42) by James Harton
+
 ## [v0.2.4](https://github.com/beam-bots/bb_liveview/compare/v0.2.3...v0.2.4) (2026-01-18)
 
 

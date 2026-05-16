@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.2.6](https://github.com/beam-bots/bb_liveview/compare/v0.2.5...v0.2.6) (2026-05-16)
+
+
+
+
+### Improvements:
+
+* phoenix bootstrap + endpoint plug injection in `bb_liveview.install` (#43) by James Harton
+
 ## [v0.2.5](https://github.com/beam-bots/bb_liveview/compare/v0.2.4...v0.2.5) (2026-05-13)
 
 

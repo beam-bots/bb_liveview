@@ -143,7 +143,7 @@ defmodule BB.LiveView.Components.Command do
                 <span :if={arg.required} class="bb-required">*</span>
               </label>
 
-              <%= render_input(arg, @form_values) %>
+              <%= render_input(arg, Map.get(@form_values, @active_tab, %{})) %>
 
               <span :if={arg.doc} class="bb-field-doc">{arg.doc}</span>
             </div>
@@ -237,8 +237,17 @@ defmodule BB.LiveView.Components.Command do
       parsed_args = parse_args(args)
       spawn_command_task(socket, cmd_atom, parsed_args)
 
+      # Stash the submitted form values per-command so the next render after
+      # the command completes shows what the user typed rather than reverting
+      # to declared defaults. Keys come back from the form as strings; convert
+      # them to atoms so render_input's `Map.get(form_values, arg.name, ...)`
+      # lookups hit.
+      args_by_atom_key = Map.new(args, fn {k, v} -> {String.to_existing_atom(k), v} end)
+      form_values = Map.put(socket.assigns.form_values, cmd_atom, args_by_atom_key)
+
       {:noreply,
        socket
+       |> assign(:form_values, form_values)
        |> assign(:executing, cmd_atom)
        |> assign(:result, nil)
        |> assign(:error, nil)}

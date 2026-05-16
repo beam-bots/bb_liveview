@@ -199,6 +199,18 @@ defmodule BB.LiveView.Components.Command do
         <input type="number" name={"args[#{@arg.name}]"} value={@value} step={@step} class="bb-input" />
         """
 
+      "atom" ->
+        # Atom values render with the leading `:` so the submitted form value
+        # round-trips back through `parse_value/1`'s atom branch and reaches
+        # the handler as an actual atom. Without this, a `default: :foo`
+        # initially renders as the bare string `"foo"`, the user submits a
+        # bare string, and `is_atom/1` guards on the handler fail.
+        assigns = %{arg: arg, value: atom_input_value(value)}
+
+        ~H"""
+        <input type="text" name={"args[#{@arg.name}]"} value={@value} class="bb-input" />
+        """
+
       _ ->
         assigns = %{arg: arg, value: value}
 
@@ -207,6 +219,16 @@ defmodule BB.LiveView.Components.Command do
         """
     end
   end
+
+  defp atom_input_value(value) when is_atom(value) and not is_nil(value),
+    do: ":" <> Atom.to_string(value)
+
+  defp atom_input_value(":" <> _ = value), do: value
+
+  defp atom_input_value(value) when is_binary(value) and byte_size(value) > 0,
+    do: ":" <> value
+
+  defp atom_input_value(_), do: ""
 
   defp parse_enum_values(values_str) do
     values_str

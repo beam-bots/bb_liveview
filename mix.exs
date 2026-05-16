@@ -104,8 +104,15 @@ defmodule BB.LiveView.MixProject do
   defp deps do
     [
       {:bb, bb_dep("~> 0.15.3")},
+      # Igniter and phx_install are dev/test-only here — the bb_liveview
+      # installer ships their declarations to consumer projects via
+      # `adds_deps:` in `Mix.Tasks.BbLiveview.Install.info/2`. We carry them
+      # here only so our own installer tests can exercise the
+      # phx.install.* compositions.
+      {:igniter, "~> 0.7 and >= 0.7.3", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"},
       {:phoenix_live_view, "~> 1.0"},
+      {:phx_install, "~> 0.1", only: [:dev, :test], runtime: false},
       {:plug, "~> 1.16"},
 
       # Build tools (dev only)
@@ -120,7 +127,6 @@ defmodule BB.LiveView.MixProject do
       {:ex_doc, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:floki, "~> 0.36", only: :test},
       {:git_ops, "~> 2.9", only: [:dev, :test], runtime: false},
-      {:igniter, "~> 0.6", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.2", only: :test, runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:phoenix_test, "~> 0.9", only: :test}

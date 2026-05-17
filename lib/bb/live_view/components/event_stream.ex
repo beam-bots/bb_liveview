@@ -135,10 +135,9 @@ defmodule BB.LiveView.Components.EventStream do
   end
 
   defp format_message(path, message) do
-    now = DateTime.utc_now()
-
     timestamp_str =
-      now
+      message.wall_time
+      |> DateTime.from_unix!(:nanosecond)
       |> Calendar.strftime("%H:%M:%S.%f")
       |> String.slice(0, 12)
 

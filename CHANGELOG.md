@@ -11,6 +11,21 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.2.7](https://github.com/beam-bots/bb_liveview/compare/v0.2.6...v0.2.7) (2026-05-17)
+
+
+
+
+### Bug Fixes:
+
+* render :atom-typed argument values with their leading colon (#45) by James Harton
+
+* preserve command form input values after execute (#44) by James Harton
+
+### Improvements:
+
+* display event-stream timestamps from `BB.Message.wall_time` (#48) by James Harton
+
 ## [v0.2.6](https://github.com/beam-bots/bb_liveview/compare/v0.2.5...v0.2.6) (2026-05-16)
 
 

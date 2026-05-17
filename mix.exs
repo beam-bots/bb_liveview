@@ -103,7 +103,7 @@ defmodule BB.LiveView.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:bb, bb_dep("~> 0.15.3")},
+      {:bb, bb_dep("~> 0.16")},
       # Igniter and phx_install are dev/test-only here — the bb_liveview
       # installer ships their declarations to consumer projects via
       # `adds_deps:` in `Mix.Tasks.BbLiveview.Install.info/2`. We carry them

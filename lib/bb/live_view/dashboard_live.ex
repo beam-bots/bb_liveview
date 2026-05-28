@@ -26,6 +26,8 @@ defmodule BB.LiveView.DashboardLive do
   alias BB.LiveView.Components.Safety
   alias BB.LiveView.Components.Visualisation
 
+  @joint_state_throttle_ms 33
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     robot_module = socket.assigns.robot_module
@@ -35,6 +37,8 @@ defmodule BB.LiveView.DashboardLive do
       |> assign(:robot_name, get_robot_name(robot_module))
       |> assign(:connected, connected?(socket))
       |> assign(:loading, true)
+      |> assign(:pending_joint_state, nil)
+      |> assign(:joint_state_flush_scheduled, false)
 
     if connected?(socket) do
       subscribe_to_robot(robot_module)
@@ -79,12 +83,25 @@ defmodule BB.LiveView.DashboardLive do
 
   def handle_info(
         {:bb, [:sensor | _rest] = path,
-         %BB.Message{payload: %BB.Message.Sensor.JointState{} = js} = message},
+         %BB.Message{payload: %BB.Message.Sensor.JointState{}} = message},
         socket
       ) do
-    positions =
-      Enum.zip(js.names, js.positions)
-      |> Map.new()
+    socket =
+      socket
+      |> assign(:pending_joint_state, {path, message})
+      |> schedule_joint_state_flush()
+
+    {:noreply, socket}
+  end
+
+  def handle_info(:flush_joint_state, %{assigns: %{pending_joint_state: nil}} = socket) do
+    {:noreply, assign(socket, :joint_state_flush_scheduled, false)}
+  end
+
+  def handle_info(:flush_joint_state, socket) do
+    {path, message} = socket.assigns.pending_joint_state
+    js = message.payload
+    positions = Enum.zip(js.names, js.positions) |> Map.new()
 
     send_update(JointControl,
       id: "joint_control",
@@ -101,7 +118,10 @@ defmodule BB.LiveView.DashboardLive do
       event: {:new_message, path, message}
     )
 
-    {:noreply, socket}
+    {:noreply,
+     socket
+     |> assign(:pending_joint_state, nil)
+     |> assign(:joint_state_flush_scheduled, false)}
   end
 
   def handle_info(
@@ -230,6 +250,14 @@ defmodule BB.LiveView.DashboardLive do
     robot_module
     |> Module.split()
     |> List.last()
+  end
+
+  defp schedule_joint_state_flush(%{assigns: %{joint_state_flush_scheduled: true}} = socket),
+    do: socket
+
+  defp schedule_joint_state_flush(socket) do
+    Process.send_after(self(), :flush_joint_state, @joint_state_throttle_ms)
+    assign(socket, :joint_state_flush_scheduled, true)
   end
 
   defp subscribe_to_robot(robot_module) do

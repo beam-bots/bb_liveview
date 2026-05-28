@@ -15,35 +15,69 @@ defmodule BB.LiveView.Components.EventStream do
   """
   use Phoenix.LiveComponent
 
+  alias Phoenix.LiveView.JS
+
   @max_messages 100
+  @default_flush_interval_ms 500
+  @default_debounce_window_ms 1000
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
     {:ok,
-     assign(socket,
-       messages: [],
+     socket
+     |> stream(:messages, [])
+     |> assign(
        paused: false,
-       expanded: MapSet.new()
+       message_count: 0,
+       pending: [],
+       last_seen: %{},
+       flush_scheduled: false,
+       flush_interval_ms: @default_flush_interval_ms,
+       debounce_window_ms: @default_debounce_window_ms
      )}
   end
 
   @impl Phoenix.LiveComponent
   def update(%{event: {:new_message, path, message}}, socket) do
-    if socket.assigns.paused do
-      {:ok, socket}
-    else
-      msg_data = format_message(path, message)
+    cond do
+      socket.assigns.paused ->
+        {:ok, socket}
 
-      messages =
-        [msg_data | socket.assigns.messages]
-        |> Enum.take(@max_messages)
+      debounced?(path, message, socket.assigns.last_seen, socket.assigns.debounce_window_ms) ->
+        {:ok, socket}
 
-      {:ok, assign(socket, :messages, messages)}
+      true ->
+        key = debounce_key(path, message)
+        now = System.monotonic_time(:millisecond)
+        msg_data = format_message(path, message)
+
+        socket =
+          socket
+          |> assign(:pending, [msg_data | socket.assigns.pending])
+          |> assign(:last_seen, Map.put(socket.assigns.last_seen, key, now))
+          |> schedule_flush()
+
+        {:ok, socket}
     end
   end
 
-  def update(%{robot_module: _robot_module} = assigns, socket) do
-    {:ok, assign(socket, assigns)}
+  def update(%{event: :flush}, socket) do
+    pending = socket.assigns.pending
+
+    socket =
+      pending
+      |> Enum.reverse()
+      |> Enum.reduce(socket, fn msg, acc ->
+        stream_insert(acc, :messages, msg, at: 0, limit: @max_messages)
+      end)
+      |> assign(
+        :message_count,
+        min(socket.assigns.message_count + length(pending), @max_messages)
+      )
+      |> assign(:pending, [])
+      |> assign(:flush_scheduled, false)
+
+    {:ok, socket}
   end
 
   def update(assigns, socket) do
@@ -72,37 +106,38 @@ defmodule BB.LiveView.Components.EventStream do
           >
             Clear
           </button>
-          <span class="bb-event-count">{length(@messages)} messages</span>
+          <span class="bb-event-count">{@message_count} messages</span>
         </div>
       </div>
 
       <div class="bb-event-list">
-        <div :if={@messages == []} class="bb-empty-state">
+        <div :if={@message_count == 0} class="bb-empty-state">
           <p class="bb-empty-state-message">
             {if @paused, do: "Paused - no new messages", else: "Waiting for messages..."}
           </p>
         </div>
 
-        <div
-          :for={msg <- @messages}
-          class="bb-event-message"
-          phx-click="toggle_expand"
-          phx-target={@myself}
-          phx-value-id={msg.id}
-        >
-          <div class="bb-event-header">
-            <span class="bb-event-timestamp">{msg.timestamp}</span>
-            <span class="bb-event-path">{msg.path}</span>
-            <span class="bb-event-type">{msg.short_type}</span>
-            <span :if={msg.summary} class="bb-event-summary">{msg.summary}</span>
-          </div>
+        <div id={"#{@id}-messages"} phx-update="stream">
+          <div
+            :for={{dom_id, msg} <- @streams.messages}
+            id={dom_id}
+            class="bb-event-message"
+            phx-click={JS.toggle(to: "##{dom_id} .bb-event-payload")}
+          >
+            <div class="bb-event-header">
+              <span class="bb-event-timestamp">{msg.timestamp}</span>
+              <span class="bb-event-path">{msg.path}</span>
+              <span class="bb-event-type">{msg.short_type}</span>
+              <span :if={msg.summary} class="bb-event-summary">{msg.summary}</span>
+            </div>
 
-          <div :if={MapSet.member?(@expanded, msg.id)} class="bb-event-payload">
-            <div class="bb-event-full-type">{msg.type}</div>
-            <div class="bb-event-fields">
-              <div :for={field <- msg.fields} class="bb-event-field">
-                <span class="bb-event-field-name">{field.name}:</span>
-                <span class="bb-event-field-value">{field.value}</span>
+            <div class="bb-event-payload" style="display: none;">
+              <div class="bb-event-full-type">{msg.type}</div>
+              <div class="bb-event-fields">
+                <div :for={field <- msg.fields} class="bb-event-field">
+                  <span class="bb-event-field-name">{field.name}:</span>
+                  <span class="bb-event-field-value">{field.value}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -118,20 +153,31 @@ defmodule BB.LiveView.Components.EventStream do
   end
 
   def handle_event("clear", _params, socket) do
-    {:noreply, assign(socket, messages: [], expanded: MapSet.new())}
+    {:noreply,
+     socket
+     |> stream(:messages, [], reset: true)
+     |> assign(message_count: 0, pending: [])}
   end
 
-  def handle_event("toggle_expand", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
+  defp debounce_key(path, message), do: {path, message.payload.__struct__}
 
-    expanded =
-      if MapSet.member?(socket.assigns.expanded, id) do
-        MapSet.delete(socket.assigns.expanded, id)
-      else
-        MapSet.put(socket.assigns.expanded, id)
-      end
+  defp debounced?(path, message, last_seen, window_ms) do
+    case Map.get(last_seen, debounce_key(path, message)) do
+      nil -> false
+      last -> System.monotonic_time(:millisecond) - last < window_ms
+    end
+  end
 
-    {:noreply, assign(socket, :expanded, expanded)}
+  defp schedule_flush(%{assigns: %{flush_scheduled: true}} = socket), do: socket
+
+  defp schedule_flush(socket) do
+    Phoenix.LiveView.send_update_after(
+      __MODULE__,
+      [id: socket.assigns.id, event: :flush],
+      socket.assigns.flush_interval_ms
+    )
+
+    assign(socket, :flush_scheduled, true)
   end
 
   defp format_message(path, message) do

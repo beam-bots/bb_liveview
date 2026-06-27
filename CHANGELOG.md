@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.2.9](https://github.com/beam-bots/bb_liveview/compare/v0.2.8...v0.2.9) (2026-06-27)
+
+
+
+
+### Bug Fixes:
+
+* push the full joint pose to the 3D view, not one joint per frame (#86) by James Harton
+
 ## [v0.2.8](https://github.com/beam-bots/bb_liveview/compare/v0.2.7...v0.2.8) (2026-06-27)
 
 

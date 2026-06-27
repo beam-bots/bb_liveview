@@ -95,9 +95,7 @@ defmodule BB.LiveView.MixProject do
       "assets.deploy": [
         "cmd --cd assets npm run build -- --minify",
         "cmd --cd assets npm run build:css"
-      ],
-      "hex.build": ["assets.deploy", "hex.build"],
-      "hex.publish": ["assets.deploy", "hex.publish"]
+      ]
     ]
   end
 

@@ -37,7 +37,8 @@ defmodule BB.LiveView.DashboardLive do
       |> assign(:robot_name, get_robot_name(robot_module))
       |> assign(:connected, connected?(socket))
       |> assign(:loading, true)
-      |> assign(:pending_joint_state, nil)
+      |> assign(:joint_positions, %{})
+      |> assign(:latest_joint_message, nil)
       |> assign(:joint_state_flush_scheduled, false)
 
     if connected?(socket) do
@@ -83,25 +84,31 @@ defmodule BB.LiveView.DashboardLive do
 
   def handle_info(
         {:bb, [:sensor | _rest] = path,
-         %BB.Message{payload: %BB.Message.Sensor.JointState{}} = message},
+         %BB.Message{payload: %BB.Message.Sensor.JointState{} = js} = message},
         socket
       ) do
+    # Each joint's estimator publishes its own single-joint JointState on its
+    # own topic. Accumulate them into one running pose so a flush updates every
+    # joint together — pushing only the latest single message per throttle
+    # window makes the visualisation update one joint at a time and look jerky.
+    positions = js.names |> Enum.zip(js.positions) |> Map.new()
+
     socket =
       socket
-      |> assign(:pending_joint_state, {path, message})
+      |> assign(:joint_positions, Map.merge(socket.assigns.joint_positions, positions))
+      |> assign(:latest_joint_message, {path, message})
       |> schedule_joint_state_flush()
 
     {:noreply, socket}
   end
 
-  def handle_info(:flush_joint_state, %{assigns: %{pending_joint_state: nil}} = socket) do
+  def handle_info(:flush_joint_state, %{assigns: %{latest_joint_message: nil}} = socket) do
     {:noreply, assign(socket, :joint_state_flush_scheduled, false)}
   end
 
   def handle_info(:flush_joint_state, socket) do
-    {path, message} = socket.assigns.pending_joint_state
-    js = message.payload
-    positions = Enum.zip(js.names, js.positions) |> Map.new()
+    {path, message} = socket.assigns.latest_joint_message
+    positions = socket.assigns.joint_positions
 
     send_update(JointControl,
       id: "joint_control",
@@ -120,7 +127,7 @@ defmodule BB.LiveView.DashboardLive do
 
     {:noreply,
      socket
-     |> assign(:pending_joint_state, nil)
+     |> assign(:latest_joint_message, nil)
      |> assign(:joint_state_flush_scheduled, false)}
   end
 

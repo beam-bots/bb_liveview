@@ -25,6 +25,7 @@ defmodule BB.LiveView.Components.Command do
        active_tab: nil,
        state: :disarmed,
        executing: nil,
+       command_pid: nil,
        result: nil,
        error: nil,
        form_values: %{}
@@ -40,6 +41,7 @@ defmodule BB.LiveView.Components.Command do
     {:ok,
      socket
      |> assign(:executing, nil)
+     |> assign(:command_pid, nil)
      |> assign(:result, result)
      |> assign(:error, nil)}
   end
@@ -48,6 +50,7 @@ defmodule BB.LiveView.Components.Command do
     {:ok,
      socket
      |> assign(:executing, nil)
+     |> assign(:command_pid, nil)
      |> assign(:result, nil)
      |> assign(:error, error)}
   end
@@ -153,7 +156,17 @@ defmodule BB.LiveView.Components.Command do
               class="bb-button bb-button-primary"
               disabled={not can_execute or @executing != nil}
             >
-              {if @executing == cmd.name, do: "Executing...", else: "Execute"}
+              {if @executing == cmd.name, do: "Running…", else: "Execute"}
+            </button>
+
+            <button
+              :if={@executing == cmd.name}
+              type="button"
+              class="bb-button bb-button-danger"
+              phx-click="cancel"
+              phx-target={@myself}
+            >
+              Cancel
             </button>
           </form>
 
@@ -252,12 +265,16 @@ defmodule BB.LiveView.Components.Command do
     execute_command(socket, cmd_name, %{})
   end
 
+  def handle_event("cancel", _params, socket) do
+    if pid = socket.assigns.command_pid, do: BB.Command.cancel(pid)
+    {:noreply, socket}
+  end
+
   defp execute_command(socket, cmd_name, args) do
     cmd_atom = String.to_existing_atom(cmd_name)
 
     if valid_robot?(socket.assigns.robot_module) do
       parsed_args = parse_args(args)
-      spawn_command_task(socket, cmd_atom, parsed_args)
 
       # Stash the submitted form values per-command so the next render after
       # the command completes shows what the user typed rather than reverting
@@ -267,12 +284,24 @@ defmodule BB.LiveView.Components.Command do
       args_by_atom_key = Map.new(args, fn {k, v} -> {String.to_existing_atom(k), v} end)
       form_values = Map.put(socket.assigns.form_values, cmd_atom, args_by_atom_key)
 
-      {:noreply,
-       socket
-       |> assign(:form_values, form_values)
-       |> assign(:executing, cmd_atom)
-       |> assign(:result, nil)
-       |> assign(:error, nil)}
+      socket =
+        socket
+        |> assign(:form_values, form_values)
+        |> assign(:result, nil)
+        |> assign(:error, nil)
+
+      case RobotRuntime.execute(socket.assigns.robot_module, cmd_atom, parsed_args) do
+        {:ok, pid} ->
+          await_command(socket, pid)
+
+          {:noreply,
+           socket
+           |> assign(:executing, cmd_atom)
+           |> assign(:command_pid, pid)}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, :error, inspect(reason))}
+      end
     else
       {:noreply, assign(socket, :error, "No valid robot connected")}
     end
@@ -284,20 +313,17 @@ defmodule BB.LiveView.Components.Command do
     |> Map.new()
   end
 
-  defp spawn_command_task(socket, cmd_atom, parsed_args) do
+  # Await with `:infinity` rather than a UI-side deadline: a continuous command
+  # only returns when it stops or is cancelled, and the command's own DSL
+  # `timeout` already bounds runaways. The user-facing escape hatch is the
+  # Cancel button, which stops the command and resolves this await.
+  defp await_command(socket, pid) do
     liveview_pid = socket.root_pid
     component_id = socket.assigns.id
-    robot_module = socket.assigns.robot_module
 
     Task.start(fn ->
-      case RobotRuntime.execute(robot_module, cmd_atom, parsed_args) do
-        {:ok, pid} ->
-          result = BB.Command.await(pid, 30_000)
-          notify_command_complete(liveview_pid, component_id, result)
-
-        {:error, _} = error ->
-          notify_command_complete(liveview_pid, component_id, error)
-      end
+      result = BB.Command.await(pid, :infinity)
+      notify_command_complete(liveview_pid, component_id, result)
     end)
   end
 

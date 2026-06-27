@@ -26,5 +26,6 @@ defmodule BB.LiveView.TestRouter do
   scope "/" do
     pipe_through(:browser)
     bb_dashboard("/robot", robot: BB.LiveView.TestRobot)
+    bb_dashboard("/command_robot", robot: BB.LiveView.CommandRobot)
   end
 end

@@ -11,6 +11,19 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.2.8](https://github.com/beam-bots/bb_liveview/compare/v0.2.7...v0.2.8) (2026-06-27)
+
+
+
+
+### Bug Fixes:
+
+* don't time out continuous commands; add cancel control (#85) by James Harton
+
+### Improvements:
+
+* throttle dashboard rendering under high-rate sensor traffic by James Harton
+
 ## [v0.2.7](https://github.com/beam-bots/bb_liveview/compare/v0.2.6...v0.2.7) (2026-05-17)
 
 

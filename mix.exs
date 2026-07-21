@@ -65,6 +65,7 @@ defmodule BB.LiveView.MixProject do
         CHANGELOG.md
         LICENSE*
         LICENSES
+        usage-rules.md
       )
     ]
   end
@@ -128,7 +129,8 @@ defmodule BB.LiveView.MixProject do
       {:git_ops, "~> 2.9", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.2", only: :test, runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      {:phoenix_test, "~> 0.9", only: :test}
+      {:phoenix_test, "~> 0.9", only: :test},
+      {:usage_rules, "~> 1.2", only: [:dev], runtime: false}
     ]
   end
 

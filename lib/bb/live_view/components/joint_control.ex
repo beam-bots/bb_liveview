@@ -280,7 +280,7 @@ defmodule BB.LiveView.Components.JointControl do
     if valid_robot?(robot_module) do
       try do
         robot_struct = RobotRuntime.get_robot(robot_module)
-        positions = RobotRuntime.positions(robot_module)
+        positions = RobotRuntime.configurations(robot_module)
         armed = BB.Safety.armed?(robot_module)
         {:ok, robot_struct, positions, armed}
       rescue

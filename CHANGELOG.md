@@ -11,6 +11,13 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.0](https://github.com/beam-bots/bb_liveview/compare/v0.2.9...v0.3.0) (2026-08-04)
+### Breaking Changes:
+
+* follow the `positions` to `configurations` rename in core (#113) by James Harton
+
+
+
 ## [v0.2.9](https://github.com/beam-bots/bb_liveview/compare/v0.2.8...v0.2.9) (2026-06-27)
 
 

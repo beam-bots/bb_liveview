@@ -12,12 +12,19 @@ defmodule BB.LiveView.Components.JointControl do
   - Position limits (min/max)
   - Slider for setting target position
 
-  Controls are only enabled when the robot is armed.
+  Controls are only enabled when the robot is armed. Moving a slider waits for
+  the actuator to accept the command and shows the refusal if it doesn't, so a
+  joint that isn't moving says why.
   """
   use Phoenix.LiveComponent
 
   alias BB.Message
   alias BB.Robot.Runtime, as: RobotRuntime
+
+  # A drag is a stream of targets of which only the latest matters, so waiting
+  # `BB.Actuator.set_position/4`'s default five seconds for one of them would
+  # cost more than the answer is worth.
+  @command_timeout_ms 250
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
@@ -112,7 +119,7 @@ defmodule BB.LiveView.Components.JointControl do
             <span class="bb-joint-col-type">{joint.type}</span>
             <span class="bb-joint-col-position">{format_position(joint.position, joint.type)}</span>
             <span class="bb-joint-col-slider">
-              <form phx-change="set_position" phx-target={@myself}>
+              <form id={"bb-set-position-#{joint.name}"} phx-change="set_position" phx-target={@myself}>
                 <span class="bb-limit-label">{format_limit(joint.lower_limit, joint.type)}</span>
                 <input type="hidden" name="joint" value={joint.name} />
                 <input
@@ -141,34 +148,19 @@ defmodule BB.LiveView.Components.JointControl do
     {position, ""} = Float.parse(value)
     joint_atom = String.to_existing_atom(joint_name)
 
-    socket =
-      if socket.assigns.armed and valid_robot?(socket.assigns.robot_module) do
-        case find_joint(socket.assigns.joints, joint_atom) do
-          nil ->
-            socket
+    {:noreply, set_position(socket, joint_atom, position)}
+  end
 
-          %{actuator: nil} = _joint ->
-            send_simulated_position(socket, joint_atom, position)
-
-          joint ->
-            send_position_command(
-              socket.assigns.robot_module,
-              joint_atom,
-              joint.actuator,
-              position
-            )
-
-            socket
-        end
-      else
-        if valid_robot?(socket.assigns.robot_module) do
-          assign(socket, :error_message, "Robot must be armed to control joints")
-        else
-          assign(socket, :error_message, "No valid robot connected")
-        end
+  defp set_position(socket, joint_name, position) do
+    if valid_robot?(socket.assigns.robot_module) do
+      case find_joint(socket.assigns.joints, joint_name) do
+        nil -> socket
+        %{actuator: nil} -> send_simulated_position(socket, joint_name, position)
+        joint -> send_position_command(socket, joint.actuator, position)
       end
-
-    {:noreply, socket}
+    else
+      assign(socket, :error_message, "No valid robot connected")
+    end
   end
 
   defp build_joint_data(robot_struct, positions) do
@@ -212,8 +204,31 @@ defmodule BB.LiveView.Components.JointControl do
 
   defp find_joint(joints, name), do: Enum.find(joints, fn j -> j.name == name end)
 
-  defp send_position_command(robot, _joint_name, actuator_name, position) do
-    BB.Actuator.set_position!(robot, actuator_name, position)
+  defp send_position_command(socket, actuator_name, position) do
+    assign(socket, :error_message, refusal(socket.assigns.robot_module, actuator_name, position))
+  end
+
+  defp refusal(robot, actuator_name, position) do
+    case BB.Actuator.set_position(robot, actuator_name, position, timeout: @command_timeout_ms) do
+      :ok -> nil
+      {:error, reason} when is_exception(reason) -> Exception.message(reason)
+      {:error, reason} -> inspect(reason)
+    end
+  catch
+    # `set_position/4` calls the actuator, so one that has died or is too busy to
+    # answer would otherwise exit the dashboard along with it.
+    :exit, {:noproc, _} ->
+      "#{inspect(actuator_name)} is not running"
+
+    :exit, {:timeout, _} ->
+      "#{inspect(actuator_name)} did not answer within #{@command_timeout_ms}ms"
+
+    :exit, _reason ->
+      "#{inspect(actuator_name)} failed while handling the command"
+  end
+
+  defp send_simulated_position(socket, _joint_name, _position) when not socket.assigns.armed do
+    assign(socket, :error_message, "Robot must be armed to control joints")
   end
 
   defp send_simulated_position(socket, joint_name, position) do

@@ -141,7 +141,8 @@ Subscribes to `[:state_machine]` and `[:safety]` channels. Displays:
 Reads joint definitions from the robot struct. For each joint:
 - Shows current position (degrees for revolute, mm for prismatic)
 - Provides a slider respecting joint limits
-- Sends position commands via `BB.Actuator.set_position/4`
+- Sends position commands via `BB.Actuator.set_position/4`, waiting for the
+  actuator to accept each one and displaying the refusal if it doesn't
 
 ### 3D Visualisation Component
 

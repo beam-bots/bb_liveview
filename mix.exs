@@ -9,7 +9,7 @@ defmodule BB.LiveView.MixProject do
   Interactive LiveView-based dashboard for Beam Bots-powered robots.
   """
 
-  @version "0.3.0"
+  @version "0.3.1"
 
   def project do
     [

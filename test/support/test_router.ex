@@ -29,5 +29,6 @@ defmodule BB.LiveView.TestRouter do
     bb_dashboard("/command_robot", robot: BB.LiveView.CommandRobot)
     bb_dashboard("/joint_robot", robot: BB.LiveView.JointRobot)
     bb_dashboard("/planar_robot", robot: BB.LiveView.PlanarRobot)
+    bb_dashboard("/parameter_robot", robot: BB.LiveView.ParameterRobot)
   end
 end

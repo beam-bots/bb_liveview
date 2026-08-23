@@ -13,6 +13,10 @@ defmodule BB.LiveView.Components.Visualisation do
   """
   use Phoenix.LiveComponent
 
+  alias BB.Math.Quaternion
+  alias BB.Math.Transform
+  alias BB.Math.Transform2D
+  alias BB.Math.Vec3
   alias BB.Robot.Runtime, as: RobotRuntime
 
   @impl Phoenix.LiveComponent
@@ -27,7 +31,7 @@ defmodule BB.LiveView.Components.Visualisation do
 
   @impl Phoenix.LiveComponent
   def update(%{event: {:positions_updated, positions}}, socket) do
-    serialized = serialize_positions(positions)
+    serialized = serialize_positions(positions, socket.assigns.topology)
     {:ok, push_event(socket, "positions_updated", %{positions: serialized})}
   end
 
@@ -50,11 +54,12 @@ defmodule BB.LiveView.Components.Visualisation do
     case load_robot_data(robot_module) do
       {:ok, robot_struct, positions} ->
         robot_name = get_robot_name(robot_module)
+        topology = serialize_topology(robot_struct)
 
         socket
         |> assign(:robot_module, robot_module)
-        |> assign(:topology, serialize_topology(robot_struct))
-        |> assign(:positions, serialize_positions(positions))
+        |> assign(:topology, topology)
+        |> assign(:positions, serialize_positions(positions, topology))
         |> assign(:robot_name, robot_name)
 
       :error ->
@@ -229,12 +234,46 @@ defmodule BB.LiveView.Components.Visualisation do
     }
   end
 
-  defp serialize_positions(positions) do
-    positions
-    |> Enum.map(fn {name, value} ->
-      {Atom.to_string(name), value}
+  defp serialize_positions(positions, topology) do
+    joints = topology_joints(topology)
+
+    Map.new(positions, fn {joint_name, configuration} ->
+      name = Atom.to_string(joint_name)
+      {name, serialize_configuration(configuration, Map.get(joints, name))}
     end)
-    |> Map.new()
+  end
+
+  defp topology_joints(%{joints: joints}), do: joints
+  defp topology_joints(_topology), do: %{}
+
+  defp serialize_configuration(configuration, _joint) when is_number(configuration),
+    do: configuration
+
+  # A planar configuration only means anything alongside the plane normal it was
+  # measured against, and a floating one is already a full pose. Lifting the
+  # planar case here — through the same `Transform2D.to_transform/2` forward
+  # kinematics uses — keeps the plane basis convention in `bb`, and leaves the
+  # browser a pose it can apply without knowing about either.
+  defp serialize_configuration(%Transform2D{} = configuration, joint) do
+    configuration
+    |> Transform2D.to_transform(plane_normal(joint))
+    |> serialize_pose()
+  end
+
+  defp serialize_configuration(%Transform{} = configuration, _joint),
+    do: serialize_pose(configuration)
+
+  defp plane_normal(%{axis: %{x: x, y: y, z: z}}), do: Vec3.new(x, y, z)
+  defp plane_normal(_joint), do: Vec3.unit_z()
+
+  defp serialize_pose(transform) do
+    [x, y, z] = transform |> Transform.get_translation() |> Vec3.to_list()
+    [qx, qy, qz, qw] = transform |> Transform.get_quaternion() |> Quaternion.to_xyzw_list()
+
+    %{
+      xyz: %{x: x, y: y, z: z},
+      quat: %{x: qx, y: qy, z: qz, w: qw}
+    }
   end
 
   defp get_robot_name(robot_module) do

@@ -24,7 +24,8 @@ defmodule BB.LiveView.Components.Parameters do
      assign(socket,
        tabs: [],
        parameters: %{},
-       active_tab: nil
+       active_tab: nil,
+       error_message: nil
      )}
   end
 
@@ -97,6 +98,11 @@ defmodule BB.LiveView.Components.Parameters do
   def render(assigns) do
     ~H"""
     <div class="bb-parameters">
+      <div :if={@error_message} class="bb-error-message" role="alert">
+        <span class="bb-error-icon">!</span>
+        <span>{@error_message}</span>
+      </div>
+
       <div :if={@tabs == []} class="bb-empty-state">
         <p class="bb-empty-state-message">No parameters defined</p>
       </div>
@@ -220,26 +226,28 @@ defmodule BB.LiveView.Components.Parameters do
   end
 
   defp render_slider_input(assigns) do
-    step =
-      if assigns.param.type == "integer",
-        do: "1",
-        else: to_string((assigns.param.max - assigns.param.min) / 100)
+    {value, unit} = magnitude_and_unit(assigns.param.value, assigns.param.type)
+    {min, _unit} = magnitude_and_unit(assigns.param.min, assigns.param.type)
+    {max, _unit} = magnitude_and_unit(assigns.param.max, assigns.param.type)
 
-    unit = extract_unit(assigns.param.type)
+    step = if assigns.param.type == "integer", do: "1", else: to_string((max - min) / 100)
 
     assigns =
       assigns
       |> Map.put(:step, step)
       |> Map.put(:unit, unit)
+      |> Map.put(:min, min)
+      |> Map.put(:max, max)
+      |> Map.put(:value, value || 0)
 
     ~H"""
     <div class="bb-slider-input" phx-hook="DebouncedSlider" id={"slider-#{@path_str}"}>
       <input
         type="range"
-        min={@param.min}
-        max={@param.max}
+        min={@min}
+        max={@max}
         step={@step}
-        value={@param.value || 0}
+        value={@value}
         data-path={@path_str}
         data-remote={@is_remote}
         data-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
@@ -247,10 +255,10 @@ defmodule BB.LiveView.Components.Parameters do
       />
       <input
         type="number"
-        min={@param.min}
-        max={@param.max}
+        min={@min}
+        max={@max}
         step={@step}
-        value={@param.value || 0}
+        value={@value}
         phx-change="set_parameter"
         phx-target={@myself}
         name="value"
@@ -265,20 +273,21 @@ defmodule BB.LiveView.Components.Parameters do
   end
 
   defp render_number_input(assigns) do
+    {value, unit} = magnitude_and_unit(assigns.param.value, assigns.param.type)
     step = if assigns.param.type == "integer", do: "1", else: "0.01"
-    unit = extract_unit(assigns.param.type)
 
     assigns =
       assigns
       |> Map.put(:step, step)
       |> Map.put(:unit, unit)
+      |> Map.put(:value, value || 0)
 
     ~H"""
     <div class="bb-number-input">
       <input
         type="number"
         step={@step}
-        value={@param.value || 0}
+        value={@value}
         phx-change="set_parameter"
         phx-target={@myself}
         name="value"
@@ -327,8 +336,28 @@ defmodule BB.LiveView.Components.Parameters do
     """
   end
 
-  defp extract_unit("unit:" <> unit), do: unit
-  defp extract_unit(_), do: nil
+  # A unit-typed parameter can hold any value compatible with its declared unit
+  # — `BB.Parameter` stores whatever was written rather than converting — so the
+  # magnitude is only comparable with the declared bounds once it has been
+  # converted into the declared unit.
+  defp magnitude_and_unit(nil, _type), do: {nil, nil}
+
+  defp magnitude_and_unit(%Localize.Unit{} = value, "unit:" <> declared) do
+    converted = in_unit(value, BB.Unit.unit_name(declared))
+    {converted.value, converted.name}
+  end
+
+  defp magnitude_and_unit(%Localize.Unit{} = value, _type), do: {value.value, value.name}
+  defp magnitude_and_unit(value, _type), do: {value, nil}
+
+  defp in_unit(%Localize.Unit{name: name} = value, name), do: value
+
+  defp in_unit(value, name) do
+    case Localize.Unit.convert(value, name) do
+      {:ok, converted} -> converted
+      {:error, _reason} -> value
+    end
+  end
 
   @impl Phoenix.LiveComponent
   def handle_event("select_tab", %{"tab" => tab_str}, socket) do
@@ -386,14 +415,12 @@ defmodule BB.LiveView.Components.Parameters do
         Parameter.set(socket.assigns.robot_module, path, value)
       end
 
-    case result do
-      :ok ->
-        {:noreply, socket}
-
-      {:error, _reason} ->
-        {:noreply, socket}
-    end
+    {:noreply, assign(socket, :error_message, refusal(result))}
   end
+
+  defp refusal(:ok), do: nil
+  defp refusal({:error, reason}) when is_exception(reason), do: Exception.message(reason)
+  defp refusal({:error, reason}), do: inspect(reason)
 
   defp get_current_value(socket, path_str) do
     path = String.split(path_str, ".") |> Enum.map(&String.to_existing_atom/1)
@@ -579,7 +606,15 @@ defmodule BB.LiveView.Components.Parameters do
   end
 
   defp parse_value(value, "float"), do: parse_float_value(value)
-  defp parse_value(value, "unit:" <> _unit), do: parse_float_value(value)
+
+  defp parse_value(value, "unit:" <> declared) do
+    with magnitude when is_number(magnitude) <- parse_float_value(value),
+         {:ok, parsed} <- Localize.Unit.new(magnitude, BB.Unit.unit_name(declared)) do
+      parsed
+    else
+      _ -> value
+    end
+  end
 
   defp parse_value(value, "atom") do
     case to_string(value) do

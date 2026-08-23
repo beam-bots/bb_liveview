@@ -11,6 +11,15 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.3.2](https://github.com/beam-bots/bb_liveview/compare/v0.3.1...v0.3.2) (2026-08-23)
+
+
+
+
+### Bug Fixes:
+
+* send multi-degree-of-freedom joint configurations as a pose (#130) by James Harton
+
 ## [v0.3.1](https://github.com/beam-bots/bb_liveview/compare/v0.3.0...v0.3.1) (2026-08-22)
 
 

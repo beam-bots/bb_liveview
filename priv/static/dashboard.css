@@ -1197,6 +1197,12 @@
   width: 5rem;
 }
 
+.bb-param-input form {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .bb-slider-input {
   display: flex;
   align-items: center;

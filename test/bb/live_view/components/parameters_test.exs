@@ -58,46 +58,109 @@ defmodule BB.LiveView.Components.ParametersTest do
       |> assert_has(~s([id="slider-motion.trim"] input[value="#{degrees.value}"]))
       |> assert_has(~s([id="slider-motion.trim"] .bb-unit-label), text: "degree")
     end
+  end
 
-    test "writes the edited magnitude back in the declared unit", %{conn: conn} do
+  # Every write goes through the rendered form rather than a hand-built payload,
+  # because the parameter each input writes to is carried by the markup: a test
+  # that supplies the path itself passes against inputs a browser can't use.
+  describe "editing a parameter" do
+    setup %{conn: conn} do
+      start_supervised!(ParameterRobot)
       {:ok, view, _html} = live(conn, "/parameter_robot")
-      render(view)
+      %{view: view}
+    end
 
+    test "the slider writes the magnitude in the declared unit", %{view: view} do
       view
-      |> element(~s([id="slider-motion.trim"] input[type="number"]))
-      |> render_change(%{"path" => "motion.trim", "value" => "15"})
+      |> form(~s([id="param-range-motion.trim"]), %{"value" => "20"})
+      |> render_change()
+
+      assert {:ok, %Localize.Unit{value: 20.0, name: "degree"}} =
+               Parameter.get(ParameterRobot, [:motion, :trim])
+    end
+
+    test "the slider's number input writes the magnitude in the declared unit", %{view: view} do
+      view
+      |> form(~s([id="param-number-motion.trim"]), %{"value" => "15"})
+      |> render_change()
 
       assert {:ok, %Localize.Unit{value: 15.0, name: "degree"}} =
                Parameter.get(ParameterRobot, [:motion, :trim])
     end
+
+    test "an unbounded parameter's number input writes the magnitude", %{view: view} do
+      view
+      |> form(~s([id="param-number-motion.reach"]), %{"value" => "1.25"})
+      |> render_change()
+
+      assert {:ok, %Localize.Unit{value: 1.25, name: "meter"}} =
+               Parameter.get(ParameterRobot, [:motion, :reach])
+    end
+
+    test "an integer slider writes an integer", %{view: view} do
+      view
+      |> form(~s([id="param-range-motion.taps"]), %{"value" => "12"})
+      |> render_change()
+
+      assert {:ok, 12} = Parameter.get(ParameterRobot, [:motion, :taps])
+    end
+
+    test "an atom input writes the atom", %{view: view} do
+      view
+      |> form(~s([id="param-atom-motion.profile"]), %{"value" => ":cubic"})
+      |> render_change()
+
+      assert {:ok, :cubic} = Parameter.get(ParameterRobot, [:motion, :profile])
+    end
+
+    test "an atom the runtime has never seen is refused, not crashed on", %{view: view} do
+      html =
+        view
+        |> form(~s([id="param-atom-motion.profile"]), %{"value" => "not_a_known_profile"})
+        |> render_change()
+
+      assert html =~ "bb-error-message"
+      assert {:ok, :linear} = Parameter.get(ParameterRobot, [:motion, :profile])
+    end
+
+    test "a text input writes the string", %{view: view} do
+      view
+      |> form(~s([id="param-text-motion.label"]), %{"value" => "shoulder"})
+      |> render_change()
+
+      assert {:ok, "shoulder"} = Parameter.get(ParameterRobot, [:motion, :label])
+    end
+
+    test "the toggle flips a boolean", %{view: view} do
+      view
+      |> element(~s(input[type="checkbox"][phx-value-path="motion.inverted"]))
+      |> render_click()
+
+      assert {:ok, true} = Parameter.get(ParameterRobot, [:motion, :inverted])
+    end
   end
 
   describe "refused writes" do
-    setup do
+    setup %{conn: conn} do
       start_supervised!(ParameterRobot)
-      :ok
+      {:ok, view, _html} = live(conn, "/parameter_robot")
+      %{view: view}
     end
 
-    test "shows the refusal rather than swallowing it", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/parameter_robot")
-      render(view)
-
+    test "shows the refusal rather than swallowing it", %{view: view} do
       html =
         view
-        |> element(~s([id="slider-motion.trim"] input[type="number"]))
-        |> render_change(%{"path" => "motion.trim", "value" => "45"})
+        |> form(~s([id="param-number-motion.trim"]), %{"value" => "45"})
+        |> render_change()
 
       assert html =~ "less than or equal to 30 degree"
     end
 
-    test "clears the refusal once a write is accepted", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/parameter_robot")
-      render(view)
+    test "clears the refusal once a write is accepted", %{view: view} do
+      selector = ~s([id="param-number-motion.trim"])
 
-      input = element(view, ~s([id="slider-motion.trim"] input[type="number"]))
-
-      render_change(input, %{"path" => "motion.trim", "value" => "45"})
-      html = render_change(input, %{"path" => "motion.trim", "value" => "15"})
+      view |> form(selector, %{"value" => "45"}) |> render_change()
+      html = view |> form(selector, %{"value" => "15"}) |> render_change()
 
       refute html =~ "bb-error-message"
     end

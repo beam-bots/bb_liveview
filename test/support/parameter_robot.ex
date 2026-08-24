@@ -26,6 +26,9 @@ defmodule BB.LiveView.ParameterRobot do
       )
 
       param(:reach, type: {:unit, :meter}, default: ~u(0.5 meter))
+      param(:profile, type: :atom, default: :linear)
+      param(:label, type: :string, default: "waist")
+      param(:inverted, type: :boolean, default: false)
     end
   end
 

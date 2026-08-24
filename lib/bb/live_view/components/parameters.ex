@@ -183,9 +183,8 @@ defmodule BB.LiveView.Components.Parameters do
     assigns =
       assigns
       |> Map.put(:param, param)
-      |> Map.put(:tab, tab)
-      |> Map.put(:has_limits, has_limits)
       |> Map.put(:is_remote, is_remote)
+      |> Map.put(:bridge_name, if(is_remote, do: tab.bridge_name, else: ""))
       |> Map.put(:path_str, path_str)
 
     input_type = determine_input_type(param.type, has_limits)
@@ -217,8 +216,8 @@ defmodule BB.LiveView.Components.Parameters do
         phx-click="toggle_boolean"
         phx-target={@myself}
         phx-value-path={@path_str}
-        phx-value-remote={@is_remote}
-        phx-value-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
+        phx-value-remote={to_string(@is_remote)}
+        phx-value-bridge={@bridge_name}
       />
       <span class="bb-toggle-slider"></span>
     </label>
@@ -241,33 +240,38 @@ defmodule BB.LiveView.Components.Parameters do
       |> Map.put(:value, value || 0)
 
     ~H"""
-    <div class="bb-slider-input" phx-hook="DebouncedSlider" id={"slider-#{@path_str}"}>
-      <input
-        type="range"
-        min={@min}
-        max={@max}
-        step={@step}
-        value={@value}
-        data-path={@path_str}
-        data-remote={@is_remote}
-        data-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
-        phx-target={@myself}
-      />
-      <input
-        type="number"
-        min={@min}
-        max={@max}
-        step={@step}
-        value={@value}
+    <div class="bb-slider-input" id={"slider-#{@path_str}"}>
+      <form id={"param-range-#{@path_str}"} phx-change="set_parameter" phx-target={@myself}>
+        <.param_identity path={@path_str} remote={@is_remote} bridge={@bridge_name} />
+        <input
+          type="range"
+          name="value"
+          min={@min}
+          max={@max}
+          step={@step}
+          value={@value}
+          phx-debounce="100"
+        />
+      </form>
+      <form
+        id={"param-number-#{@path_str}"}
         phx-change="set_parameter"
+        phx-submit="set_parameter"
         phx-target={@myself}
-        name="value"
-        phx-value-path={@path_str}
-        phx-value-remote={@is_remote}
-        phx-value-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
-        class="bb-input"
-      />
-      <span :if={@unit} class="bb-unit-label">{@unit}</span>
+      >
+        <.param_identity path={@path_str} remote={@is_remote} bridge={@bridge_name} />
+        <input
+          type="number"
+          name="value"
+          min={@min}
+          max={@max}
+          step={@step}
+          value={@value}
+          phx-debounce="blur"
+          class="bb-input"
+        />
+        <span :if={@unit} class="bb-unit-label">{@unit}</span>
+      </form>
     </div>
     """
   end
@@ -284,19 +288,23 @@ defmodule BB.LiveView.Components.Parameters do
 
     ~H"""
     <div class="bb-number-input">
-      <input
-        type="number"
-        step={@step}
-        value={@value}
+      <form
+        id={"param-number-#{@path_str}"}
         phx-change="set_parameter"
+        phx-submit="set_parameter"
         phx-target={@myself}
-        name="value"
-        phx-value-path={@path_str}
-        phx-value-remote={@is_remote}
-        phx-value-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
-        class="bb-input"
-      />
-      <span :if={@unit} class="bb-unit-label">{@unit}</span>
+      >
+        <.param_identity path={@path_str} remote={@is_remote} bridge={@bridge_name} />
+        <input
+          type="number"
+          name="value"
+          step={@step}
+          value={@value}
+          phx-debounce="blur"
+          class="bb-input"
+        />
+        <span :if={@unit} class="bb-unit-label">{@unit}</span>
+      </form>
     </div>
     """
   end
@@ -306,33 +314,56 @@ defmodule BB.LiveView.Components.Parameters do
     assigns = Map.put(assigns, :display_value, display_value)
 
     ~H"""
-    <input
-      type="text"
-      value={@display_value}
+    <form
+      id={"param-atom-#{@path_str}"}
       phx-change="set_parameter"
+      phx-submit="set_parameter"
       phx-target={@myself}
-      name="value"
-      phx-value-path={@path_str}
-      phx-value-remote={@is_remote}
-      phx-value-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
-      class="bb-input bb-atom-input"
-    />
+    >
+      <.param_identity path={@path_str} remote={@is_remote} bridge={@bridge_name} />
+      <input
+        type="text"
+        name="value"
+        value={@display_value}
+        phx-debounce="blur"
+        class="bb-input bb-atom-input"
+      />
+    </form>
     """
   end
 
   defp render_text_input(assigns) do
     ~H"""
-    <input
-      type="text"
-      value={@param.value || ""}
+    <form
+      id={"param-text-#{@path_str}"}
       phx-change="set_parameter"
+      phx-submit="set_parameter"
       phx-target={@myself}
-      name="value"
-      phx-value-path={@path_str}
-      phx-value-remote={@is_remote}
-      phx-value-bridge={if @is_remote, do: @tab.bridge_name, else: ""}
-      class="bb-input"
-    />
+    >
+      <.param_identity path={@path_str} remote={@is_remote} bridge={@bridge_name} />
+      <input
+        type="text"
+        name="value"
+        value={@param.value || ""}
+        phx-debounce="blur"
+        class="bb-input"
+      />
+    </form>
+    """
+  end
+
+  # LiveView reads `phx-value-*` from the form for change and submit events, not
+  # from the input that changed, so which parameter a form writes to has to
+  # travel as form data.
+  attr(:path, :string, required: true)
+  attr(:remote, :boolean, required: true)
+  attr(:bridge, :string, required: true)
+
+  defp param_identity(assigns) do
+    ~H"""
+    <input type="hidden" name="path" value={@path} />
+    <input type="hidden" name="remote" value={to_string(@remote)} />
+    <input type="hidden" name="bridge" value={@bridge} />
     """
   end
 
@@ -368,10 +399,10 @@ defmodule BB.LiveView.Components.Parameters do
   def handle_event("toggle_boolean", params, socket) do
     path_str = params["path"]
     is_remote = params["remote"] == "true"
-    current_value = get_current_value(socket, path_str)
-    new_value = not (current_value == true)
+    bridge = params["bridge"]
+    current_value = Map.get(find_param(socket, path_str, is_remote, bridge), :value)
 
-    apply_parameter_change(socket, path_str, new_value, is_remote, params["bridge"])
+    apply_parameter_change(socket, path_str, not (current_value == true), is_remote, bridge)
   end
 
   def handle_event("set_parameter", params, socket) do
@@ -379,18 +410,7 @@ defmodule BB.LiveView.Components.Parameters do
     value = params["value"]
     is_remote = params["remote"] == "true"
     bridge = params["bridge"]
-    param_type = get_param_type(socket, path_str)
-
-    parsed_value = parse_value(value, param_type)
-    apply_parameter_change(socket, path_str, parsed_value, is_remote, bridge)
-  end
-
-  def handle_event("slider_change", params, socket) do
-    path_str = params["path"]
-    value = params["value"]
-    is_remote = params["remote"] == "true"
-    bridge = params["bridge"]
-    param_type = get_param_type(socket, path_str)
+    param_type = Map.get(find_param(socket, path_str, is_remote, bridge), :type, "string")
 
     parsed_value = parse_value(value, param_type)
     apply_parameter_change(socket, path_str, parsed_value, is_remote, bridge)
@@ -411,8 +431,7 @@ defmodule BB.LiveView.Components.Parameters do
         bridge_atom = String.to_existing_atom(bridge)
         Parameter.set_remote(socket.assigns.robot_module, bridge_atom, path_str, value)
       else
-        path = String.split(path_str, ".") |> Enum.map(&String.to_existing_atom/1)
-        Parameter.set(socket.assigns.robot_module, path, value)
+        Parameter.set(socket.assigns.robot_module, parse_path(path_str), value)
       end
 
     {:noreply, assign(socket, :error_message, refusal(result))}
@@ -422,24 +441,22 @@ defmodule BB.LiveView.Components.Parameters do
   defp refusal({:error, reason}) when is_exception(reason), do: Exception.message(reason)
   defp refusal({:error, reason}), do: inspect(reason)
 
-  defp get_current_value(socket, path_str) do
-    path = String.split(path_str, ".") |> Enum.map(&String.to_existing_atom/1)
-    tab_id = get_tab_id_for_path(path)
+  # Remote parameters are keyed in their bridge's tab by the id the bridge gave
+  # them, which is a string of the remote system's choosing rather than a path.
+  defp find_param(socket, param_id, true = _is_remote, bridge) do
+    bridge_atom = String.to_existing_atom(bridge)
 
     socket.assigns.parameters
-    |> Map.get(tab_id, %{})
-    |> Map.get(path, %{})
-    |> Map.get(:value)
+    |> Map.get({:bridge, bridge_atom}, %{})
+    |> Map.get(param_id, %{})
   end
 
-  defp get_param_type(socket, path_str) do
-    path = String.split(path_str, ".") |> Enum.map(&String.to_existing_atom/1)
-    tab_id = get_tab_id_for_path(path)
+  defp find_param(socket, path_str, false = _is_remote, _bridge) do
+    path = parse_path(path_str)
 
     socket.assigns.parameters
-    |> Map.get(tab_id, %{})
+    |> Map.get(get_tab_id_for_path(path), %{})
     |> Map.get(path, %{})
-    |> Map.get(:type, "string")
   end
 
   defp get_tab_id_for_path(path) do
@@ -594,6 +611,12 @@ defmodule BB.LiveView.Components.Parameters do
 
   defp format_path_string(id), do: to_string(id)
 
+  defp parse_path(path_str) do
+    path_str
+    |> String.split(".")
+    |> Enum.map(&String.to_existing_atom/1)
+  end
+
   # Value parsing
 
   defp parse_value(value, "boolean"), do: value == true or value == "true"
@@ -617,9 +640,14 @@ defmodule BB.LiveView.Components.Parameters do
   end
 
   defp parse_value(value, "atom") do
-    case to_string(value) do
-      ":" <> rest -> String.to_existing_atom(rest)
-      rest -> String.to_existing_atom(rest)
+    name = value |> to_string() |> String.trim_leading(":")
+
+    try do
+      String.to_existing_atom(name)
+    rescue
+      # An atom the runtime has never heard of can't be a legal value for the
+      # parameter either, so hand the text on and let the store refuse it.
+      ArgumentError -> name
     end
   end
 

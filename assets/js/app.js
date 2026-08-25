@@ -4,12 +4,10 @@
 import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
 
-import { DebouncedSlider } from "./hooks/debounced_slider";
 import { AutoScroll } from "./hooks/auto_scroll";
 import { Visualisation } from "./hooks/visualisation";
 
 const Hooks = {
-  DebouncedSlider,
   AutoScroll,
   Visualisation,
 };

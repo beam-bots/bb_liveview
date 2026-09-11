@@ -22,10 +22,10 @@ defmodule BB.LiveView.Components.Command do
     {:ok,
      assign(socket,
        commands: [],
+       running: [],
        active_tab: nil,
        state: :disarmed,
        executing: nil,
-       command_pid: nil,
        result: nil,
        error: nil,
        form_values: %{}
@@ -34,25 +34,29 @@ defmodule BB.LiveView.Components.Command do
 
   @impl Phoenix.LiveComponent
   def update(%{event: {:state_changed, new_state}}, socket) do
-    {:ok, assign(socket, :state, new_state)}
+    {:ok, socket |> assign(:state, new_state) |> refresh_running()}
+  end
+
+  def update(%{event: :commands_changed}, socket) do
+    {:ok, refresh_running(socket)}
   end
 
   def update(%{event: {:command_result, result}}, socket) do
     {:ok,
      socket
      |> assign(:executing, nil)
-     |> assign(:command_pid, nil)
      |> assign(:result, result)
-     |> assign(:error, nil)}
+     |> assign(:error, nil)
+     |> refresh_running()}
   end
 
   def update(%{event: {:command_error, error}}, socket) do
     {:ok,
      socket
      |> assign(:executing, nil)
-     |> assign(:command_pid, nil)
      |> assign(:result, nil)
-     |> assign(:error, error)}
+     |> assign(:error, error)
+     |> refresh_running()}
   end
 
   def update(%{robot_module: robot_module} = assigns, socket) do
@@ -80,6 +84,7 @@ defmodule BB.LiveView.Components.Command do
         |> assign(:commands, commands)
         |> assign(:state, state)
         |> assign(:active_tab, active_tab)
+        |> refresh_running()
 
       :error ->
         assign(socket, :robot_module, robot_module)
@@ -104,6 +109,25 @@ defmodule BB.LiveView.Components.Command do
   def render(assigns) do
     ~H"""
     <div class="bb-command">
+      <div :if={@running != []} class="bb-command-running">
+        <h4 class="bb-command-running-title">Running</h4>
+
+        <div :for={entry <- @running} class="bb-command-running-entry">
+          <span class="bb-command-name">{entry.name}</span>
+          <span class="bb-command-running-since">{entry.started_at}</span>
+
+          <button
+            type="button"
+            class="bb-button bb-button-danger"
+            phx-click="cancel"
+            phx-target={@myself}
+            phx-value-execution-id={entry.execution_id}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
       <div :if={@commands == []} class="bb-empty-state">
         <p class="bb-empty-state-message">No commands available</p>
       </div>
@@ -159,15 +183,6 @@ defmodule BB.LiveView.Components.Command do
               {if @executing == cmd.name, do: "Running…", else: "Execute"}
             </button>
 
-            <button
-              :if={@executing == cmd.name}
-              type="button"
-              class="bb-button bb-button-danger"
-              phx-click="cancel"
-              phx-target={@myself}
-            >
-              Cancel
-            </button>
           </form>
 
           <div :if={@result} class="bb-command-result success">
@@ -265,9 +280,9 @@ defmodule BB.LiveView.Components.Command do
     execute_command(socket, cmd_name, %{})
   end
 
-  def handle_event("cancel", _params, socket) do
-    if pid = socket.assigns.command_pid, do: BB.Command.cancel(pid)
-    {:noreply, socket}
+  def handle_event("cancel", %{"execution-id" => execution_id}, socket) do
+    BB.Command.cancel(socket.assigns.robot_module, execution_id)
+    {:noreply, refresh_running(socket)}
   end
 
   defp execute_command(socket, cmd_name, args) do
@@ -294,10 +309,7 @@ defmodule BB.LiveView.Components.Command do
         {:ok, pid} ->
           await_command(socket, pid)
 
-          {:noreply,
-           socket
-           |> assign(:executing, cmd_atom)
-           |> assign(:command_pid, pid)}
+          {:noreply, socket |> assign(:executing, cmd_atom) |> refresh_running()}
 
         {:error, reason} ->
           {:noreply, assign(socket, :error, inspect(reason))}
@@ -305,6 +317,33 @@ defmodule BB.LiveView.Components.Command do
     else
       {:noreply, assign(socket, :error, "No valid robot connected")}
     end
+  end
+
+  # Read straight from the robot's registry rather than tracking what this
+  # component started: an operator needs to stop commands kicked off by
+  # automation, another dashboard, or a previous session too.
+  defp refresh_running(socket) do
+    running =
+      case socket.assigns[:robot_module] do
+        nil ->
+          []
+
+        robot_module ->
+          robot_module
+          |> BB.Command.list()
+          |> Enum.sort_by(& &1.started_at, DateTime)
+          |> Enum.map(&format_running/1)
+      end
+
+    assign(socket, :running, running)
+  end
+
+  defp format_running(entry) do
+    %{
+      name: entry.name,
+      execution_id: BB.Command.encode_execution_id(entry.execution_id),
+      started_at: Calendar.strftime(entry.started_at, "%H:%M:%S")
+    }
   end
 
   defp parse_args(args) do

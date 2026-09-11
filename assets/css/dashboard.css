@@ -890,6 +890,40 @@
   flex-direction: column;
 }
 
+.bb-command-running {
+  margin: -1rem -1rem 0 -1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bb-bg-secondary);
+  border-bottom: 1px solid var(--bb-border);
+}
+
+.bb-command-running-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bb-text-muted);
+}
+
+.bb-command-running-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.bb-command-running-entry .bb-command-name {
+  font-size: 0.875rem;
+}
+
+.bb-command-running-since {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--bb-text-muted);
+  margin-right: auto;
+}
+
 .bb-command-tabs {
   display: flex;
   border-bottom: 1px solid var(--bb-border);

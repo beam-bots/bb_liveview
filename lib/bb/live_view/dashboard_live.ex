@@ -148,6 +148,20 @@ defmodule BB.LiveView.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_info({:bb, [:command | _] = path, %BB.Message{} = message}, socket) do
+    send_update(Command,
+      id: "command",
+      event: :commands_changed
+    )
+
+    send_update(EventStream,
+      id: "event_stream",
+      event: {:new_message, path, message}
+    )
+
+    {:noreply, socket}
+  end
+
   def handle_info({:bb, path, %BB.Message{} = message}, socket) do
     send_update(EventStream,
       id: "event_stream",
@@ -273,6 +287,7 @@ defmodule BB.LiveView.DashboardLive do
         BB.subscribe(robot_module, [:state_machine])
         BB.subscribe(robot_module, [:sensor])
         BB.subscribe(robot_module, [:param])
+        BB.subscribe(robot_module, [:command])
       rescue
         ArgumentError -> :ok
       end

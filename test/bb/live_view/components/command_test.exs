@@ -5,6 +5,9 @@
 defmodule BB.LiveView.Components.CommandTest do
   use BB.LiveView.FeatureCase
 
+  alias BB.LiveView.CommandRobot
+  alias BB.Robot.Runtime
+
   describe "command component" do
     test "displays no commands message when robot has no commands", %{conn: conn} do
       conn
@@ -16,7 +19,7 @@ defmodule BB.LiveView.Components.CommandTest do
 
   describe "continuous commands" do
     setup do
-      start_supervised!(BB.LiveView.CommandRobot)
+      start_supervised!(CommandRobot)
       :ok
     end
 
@@ -26,10 +29,28 @@ defmodule BB.LiveView.Components.CommandTest do
       |> assert_has(".bb-command-name", text: "run_forever")
       |> click_button("Execute")
       |> assert_has("button", text: "Running")
-      |> assert_has(".bb-button-danger", text: "Cancel")
+      |> assert_has(".bb-command-running-entry .bb-button-danger", text: "Cancel")
       |> click_button("Cancel")
       |> assert_has(".bb-command-result.error", text: "cancelled", timeout: 1000)
       |> refute_has("button", text: "Running")
+    end
+
+    test "cancels a command the dashboard did not start", %{conn: conn} do
+      session = visit(conn, "/command_robot")
+
+      # Something other than this dashboard kicks off the command — automation,
+      # another operator, an IEx session. The dashboard never sees the pid.
+      {:ok, cmd} = Runtime.execute(CommandRobot, :run_forever, %{})
+      ref = Process.monitor(cmd)
+
+      session
+      |> assert_has(".bb-command-running-entry .bb-command-name",
+        text: "run_forever",
+        timeout: 1000
+      )
+      |> click_button("Cancel")
+
+      assert_receive {:DOWN, ^ref, :process, ^cmd, {:shutdown, :cancelled}}, 1000
     end
   end
 end

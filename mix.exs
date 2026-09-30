@@ -128,7 +128,6 @@ defmodule BB.LiveView.MixProject do
       {:floki, "~> 0.36", only: :test},
       {:git_ops, "~> 2.9", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.2", only: :test, runtime: false},
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:phoenix_test, "~> 0.9", only: :test},
       {:usage_rules, "~> 1.2", only: [:dev], runtime: false}
     ]

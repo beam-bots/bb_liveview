@@ -27,6 +27,7 @@ defmodule BB.LiveView.TestRouter do
     pipe_through(:browser)
     bb_dashboard("/robot", robot: BB.LiveView.TestRobot)
     bb_dashboard("/command_robot", robot: BB.LiveView.CommandRobot)
+    bb_dashboard("/dev_robot", robot: Dev.TestRobot)
     bb_dashboard("/joint_robot", robot: BB.LiveView.JointRobot)
     bb_dashboard("/planar_robot", robot: BB.LiveView.PlanarRobot)
     bb_dashboard("/parameter_robot", robot: BB.LiveView.ParameterRobot)

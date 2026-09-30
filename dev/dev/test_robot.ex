@@ -16,6 +16,39 @@ defmodule Dev.TestRobot do
     name(:test_robot)
   end
 
+  parameters do
+    group :balance do
+      param(:kp, type: :float, default: 1.0, min: 0.0, max: 10.0)
+      param(:ki, type: :float, default: 0.1, min: 0.0, max: 10.0)
+      param(:kd, type: :float, default: 0.05, min: 0.0, max: 10.0)
+
+      param(:catch_angle,
+        type: {:unit, :degree},
+        default: ~u(2 degree),
+        min: ~u(1 degree),
+        max: ~u(30 degree)
+      )
+
+      param(:enabled, type: :boolean, default: true)
+    end
+
+    group :drive do
+      param(:authority,
+        type: {:unit, :degree},
+        default: ~u(2 degree),
+        min: ~u(0 degree),
+        max: ~u(12 degree)
+      )
+
+      param(:ramp, type: :float, default: 8.0)
+      param(:release, type: :integer, default: 32, min: 1, max: 180)
+      param(:mode, type: :atom, default: :normal)
+      param(:reverse, type: :boolean, default: false)
+      param(:label, type: :string, default: "drive")
+      param(:boost, type: :float, default: 1.5, min: 1.0, max: 3.0)
+    end
+  end
+
   topology do
     link :base_link do
       visual do

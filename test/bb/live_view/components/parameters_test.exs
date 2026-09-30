@@ -165,4 +165,36 @@ defmodule BB.LiveView.Components.ParametersTest do
       refute html =~ "bb-error-message"
     end
   end
+
+  # Both of the dev robot's groups open with a slider, so switching from
+  # `:balance` to `:drive` patches a slider row into a slider row.
+  describe "switching tabs" do
+    setup %{conn: conn} do
+      start_supervised!(Dev.TestRobot)
+      {:ok, view, _html} = live(conn, "/dev_robot")
+      view |> element(~s(.bb-param-tab[phx-value-tab="drive"])) |> render_click()
+      %{view: view}
+    end
+
+    test "each row's inputs belong to the parameter it names", %{view: view} do
+      assert has_element?(
+               view,
+               ~s([id="param-range-drive.authority"] input[name="path"][value="drive.authority"])
+             )
+
+      refute has_element?(view, ~s([id="slider-balance.catch_angle"]))
+    end
+
+    test "the slider on the new tab writes to its own parameter", %{view: view} do
+      view
+      |> form(~s([id="param-range-drive.authority"]), %{"value" => "5"})
+      |> render_change()
+
+      assert {:ok, %Localize.Unit{value: 5.0, name: "degree"}} =
+               Parameter.get(Dev.TestRobot, [:drive, :authority])
+
+      assert {:ok, %Localize.Unit{value: 2, name: "degree"}} =
+               Parameter.get(Dev.TestRobot, [:balance, :catch_angle])
+    end
+  end
 end

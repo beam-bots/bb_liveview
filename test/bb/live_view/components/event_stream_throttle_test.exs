@@ -7,28 +7,30 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
   Tests for `EventStream`'s debounce + flush behaviour.
 
   Uses a tiny host LiveView (`BB.LiveView.EventStreamHostLive`) so the
-  component can be mounted in isolation with short intervals; otherwise
-  tests would have to wait the full production defaults.
+  component can be mounted in isolation. The flush interval and debounce
+  window default to far beyond the length of a test, and the test flushes by
+  sending the host `:flush`, so no outcome depends on a timer.
   """
 
   use BB.LiveView.ConnCase
 
   import Phoenix.LiveViewTest
 
+  alias BB.LiveView.Components.EventStream
   alias BB.LiveView.EventStreamHostLive
   alias BB.Message
   alias BB.Message.Sensor.BatteryState
   alias BB.Message.Sensor.JointState
 
-  @flush_interval_ms 20
+  @longer_than_any_test :timer.hours(1)
   @debounce_window_ms 100
 
   defp mount_host(conn, opts \\ %{}) do
     session =
       Map.merge(
         %{
-          "flush_interval_ms" => @flush_interval_ms,
-          "debounce_window_ms" => @debounce_window_ms
+          "flush_interval_ms" => @longer_than_any_test,
+          "debounce_window_ms" => @longer_than_any_test
         },
         opts
       )
@@ -52,7 +54,23 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
 
   defp inject(view, path, message), do: send(view.pid, {:inject, path, message})
 
-  defp wait_for_flush, do: Process.sleep(@flush_interval_ms * 3)
+  defp flush_now(view), do: send(view.pid, :flush)
+
+  # The host hands each message to the component with a `send_update` to
+  # itself, which queues behind the render's own sync with the view. A second
+  # render is the first to see the component updated.
+  defp render_after_update(view) do
+    render(view)
+    render(view)
+  end
+
+  defp assert_flush_fired(view) do
+    view_pid = view.pid
+
+    assert_receive {:trace, ^view_pid, :receive,
+                    {:phoenix, :send_update, {{EventStream, "event_stream"}, %{event: :flush}}}},
+                   1_000
+  end
 
   describe "flush" do
     test "buffers a new message until the flush interval elapses", %{conn: conn} do
@@ -60,11 +78,11 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
 
       inject(view, [:sensor, :imu], joint_state_message())
 
-      assert render(view) =~ "0 messages"
+      assert render_after_update(view) =~ "0 messages"
 
-      wait_for_flush()
+      flush_now(view)
 
-      assert render(view) =~ "1 messages"
+      assert render_after_update(view) =~ "1 messages"
     end
 
     test "batches multiple distinct messages into one render", %{conn: conn} do
@@ -73,23 +91,24 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
       inject(view, [:sensor, :imu], joint_state_message())
       inject(view, [:sensor, :battery], battery_state_message())
 
-      assert render(view) =~ "0 messages"
+      assert render_after_update(view) =~ "0 messages"
 
-      wait_for_flush()
+      flush_now(view)
 
-      assert render(view) =~ "2 messages"
+      assert render_after_update(view) =~ "2 messages"
     end
 
     test "schedules a fresh flush for messages arriving after the previous one fired",
          %{conn: conn} do
-      {:ok, view, _html} = mount_host(conn)
+      {:ok, view, _html} = mount_host(conn, %{"flush_interval_ms" => 20})
+      :erlang.trace(view.pid, true, [:receive])
 
       inject(view, [:sensor, :imu], joint_state_message())
-      wait_for_flush()
+      assert_flush_fired(view)
       assert render(view) =~ "1 messages"
 
       inject(view, [:sensor, :battery], battery_state_message())
-      wait_for_flush()
+      assert_flush_fired(view)
       assert render(view) =~ "2 messages"
     end
   end
@@ -102,9 +121,9 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
         inject(view, [:sensor, :imu], joint_state_message())
       end
 
-      wait_for_flush()
+      flush_now(view)
 
-      assert render(view) =~ "1 messages"
+      assert render_after_update(view) =~ "1 messages"
     end
 
     test "lets different payload types from the same path through", %{conn: conn} do
@@ -112,10 +131,9 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
 
       inject(view, [:sensor, :imu], joint_state_message())
       inject(view, [:sensor, :imu], battery_state_message())
+      flush_now(view)
 
-      wait_for_flush()
-
-      assert render(view) =~ "2 messages"
+      assert render_after_update(view) =~ "2 messages"
     end
 
     test "lets the same payload type from different paths through", %{conn: conn} do
@@ -123,24 +141,23 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
 
       inject(view, [:sensor, :imu], joint_state_message())
       inject(view, [:sensor, :arm], joint_state_message())
+      flush_now(view)
 
-      wait_for_flush()
-
-      assert render(view) =~ "2 messages"
+      assert render_after_update(view) =~ "2 messages"
     end
 
     test "accepts another message once the debounce window has elapsed", %{conn: conn} do
-      {:ok, view, _html} = mount_host(conn)
+      {:ok, view, _html} = mount_host(conn, %{"debounce_window_ms" => @debounce_window_ms})
 
       inject(view, [:sensor, :imu], joint_state_message())
-      wait_for_flush()
-      assert render(view) =~ "1 messages"
+      flush_now(view)
+      assert render_after_update(view) =~ "1 messages"
 
       Process.sleep(@debounce_window_ms)
 
       inject(view, [:sensor, :imu], joint_state_message())
-      wait_for_flush()
-      assert render(view) =~ "2 messages"
+      flush_now(view)
+      assert render_after_update(view) =~ "2 messages"
     end
   end
 
@@ -153,18 +170,18 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
       |> render_click()
 
       inject(view, [:sensor, :imu], joint_state_message())
-      wait_for_flush()
+      flush_now(view)
 
-      assert render(view) =~ "0 messages"
+      assert render_after_update(view) =~ "0 messages"
 
       view
       |> element("button", "Resume")
       |> render_click()
 
       inject(view, [:sensor, :imu], joint_state_message())
-      wait_for_flush()
+      flush_now(view)
 
-      assert render(view) =~ "1 messages"
+      assert render_after_update(view) =~ "1 messages"
     end
   end
 end

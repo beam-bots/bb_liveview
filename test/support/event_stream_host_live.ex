@@ -9,7 +9,9 @@ defmodule BB.LiveView.EventStreamHostLive do
 
   Messages are injected by sending `{:inject, path, message}` to the LiveView
   process; the LiveView forwards them to the component as a `:new_message`
-  event, matching what `DashboardLive` does at runtime.
+  event, matching what `DashboardLive` does at runtime. Sending `:flush`
+  forwards a `:flush` event, the same one the component schedules for itself,
+  so a test can flush without waiting for the interval.
   """
 
   use Phoenix.LiveView
@@ -32,6 +34,11 @@ defmodule BB.LiveView.EventStreamHostLive do
       event: {:new_message, path, message}
     )
 
+    {:noreply, socket}
+  end
+
+  def handle_info(:flush, socket) do
+    send_update(EventStream, id: "event_stream", event: :flush)
     {:noreply, socket}
   end
 

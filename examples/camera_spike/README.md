@@ -76,7 +76,6 @@ thing a real camera does when it negotiates something different.
 sudo apt install v4l-utils ffmpeg
 v4l2-ctl --list-devices
 v4l2-ctl --list-formats-ext -d /dev/video0 | grep -A3 MJPG
-id -nG | grep -q video || sudo usermod -aG video "$USER"   # then log out and back in
 
 CAMERA_DEVICE=/dev/video0 CAMERA_WIDTH=1280 CAMERA_HEIGHT=720 CAMERA_FPS=30 \
   PORT=4100 BB_VERSION=local MIX_ENV=prod mix run --no-halt
@@ -87,6 +86,16 @@ device for MJPEG and copies the packets through without decoding — no
 transcode, almost no CPU, whatever the resolution. A camera with no MJPEG mode
 still works by naming the format it has (`input_format: :yuyv422` in the DSL),
 but then ffmpeg encodes every frame and you pay for it.
+
+If the device isn't found, is busy, or refuses permission, work through the
+step-by-step smoke test in `bb_camera_v4l/README.md` — it covers finding the
+device, the `video` group, and proving the pipeline before blaming the camera.
+This example is the picture; that one is the plumbing.
+
+What the camera reports back is what it actually sent, not what you asked for:
+`BB.Camera.V4L` corrects the dimensions from each frame's own `SOF` marker, so
+a device that quietly substituted a different size shows up in the dashboard as
+the size it really produced.
 
 ### ffmpeg's synthetic source — the real driver, no camera
 

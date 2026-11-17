@@ -41,9 +41,11 @@ defmodule BB.LiveView.Camera.BBCamera do
     media().open(robot_module, camera_name, opts)
   end
 
-  # Returned from a function rather than written inline so each call dispatches
-  # on a variable, and the compiler doesn't try to resolve a package that may
-  # not be installed.
-  defp camera, do: BB.Camera
-  defp media, do: BB.Camera.Media
+  # Assembled at runtime rather than written as an alias. Spelling the module
+  # out would let the compiler resolve the call and warn that `bb_camera` is
+  # undefined — which it is, here, and is allowed to be: that is the whole
+  # point of an optional dependency. `available?/0` is what decides whether
+  # these are safe to call.
+  defp camera, do: Module.concat([:BB, :Camera])
+  defp media, do: Module.concat([:BB, :Camera, :Media])
 end

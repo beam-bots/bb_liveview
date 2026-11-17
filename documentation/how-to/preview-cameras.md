@@ -132,9 +132,28 @@ config :bb_liveview, :camera, BB.LiveView.SyntheticCamera
 That key is the seam the whole camera path hangs off. Leave it unset in a real
 application and it resolves to `bb_camera`.
 
+### With `bb_camera` installed
+
+Once the package is a dependency of your own application, the synthetic camera
+is a real driver and belongs in the robot rather than in config:
+
+```elixir
+topology do
+  link :base_link do
+    sensor :head_camera, {BB.Camera.Synthetic, clock: {:rate, 10}}
+  end
+end
+```
+
+Everything else is identical — the dashboard discovers it, previews it, and
+stops its capture when the last browser goes away. `clock: :external` plus
+`BB.Camera.Synthetic.capture_frame/2` gives a camera that produces a frame
+exactly when a test says so, which is how to test anything downstream of a
+camera without sleeping.
+
 ## Use a real USB camera on Debian
 
-With `bb_camera` and `bb_camera_v4l` installed, point a sensor at the device.
+With `bb_camera` and a V4L driver installed, point a sensor at the device.
 First confirm the kernel and your user can see it:
 
 ```sh

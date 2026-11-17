@@ -23,6 +23,7 @@ defmodule BB.LiveView.DashboardLiveTest do
       |> visit("/robot")
       |> assert_has(".bb-widget-title", text: "Safety")
       |> assert_has(".bb-widget-title", text: "Commands")
+      |> assert_has(".bb-widget-title", text: "Cameras")
       |> assert_has(".bb-widget-title", text: "3D Visualisation")
       |> assert_has(".bb-widget-title", text: "Joint Control")
       |> assert_has(".bb-widget-title", text: "Event Stream")
@@ -92,10 +93,10 @@ defmodule BB.LiveView.DashboardLiveTest do
   end
 
   describe "all widgets render correctly" do
-    test "renders exactly 6 widgets", %{conn: conn} do
+    test "renders exactly 7 widgets", %{conn: conn} do
       conn
       |> visit("/robot")
-      |> assert_has(".bb-widget", count: 6)
+      |> assert_has(".bb-widget", count: 7)
     end
   end
 end

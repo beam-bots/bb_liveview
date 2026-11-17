@@ -19,6 +19,7 @@ defmodule BB.LiveView.DashboardLive do
 
   import BB.LiveView.Components
 
+  alias BB.LiveView.Components.Cameras
   alias BB.LiveView.Components.Command
   alias BB.LiveView.Components.EventStream
   alias BB.LiveView.Components.JointControl
@@ -27,6 +28,17 @@ defmodule BB.LiveView.DashboardLive do
   alias BB.LiveView.Components.Visualisation
 
   @joint_state_throttle_ms 33
+
+  # Lifecycle events a camera publishes on the ordinary sensor topic. Frames
+  # never appear here — only the fact that capture started, stopped, or that
+  # settings moved — so seeing one means the camera list is stale, not that
+  # there are pixels to render.
+  @camera_events [
+    BB.Message.Camera.ApplySettings,
+    BB.Message.Camera.BeginCapture,
+    BB.Message.Camera.EndCapture,
+    BB.Message.Camera.RejectSettings
+  ]
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -38,6 +50,7 @@ defmodule BB.LiveView.DashboardLive do
       |> assign(:connected, connected?(socket))
       |> assign(:loading, true)
       |> assign(:joint_positions, %{})
+      |> assign(:base_path, "/")
       |> assign(:latest_joint_message, nil)
       |> assign(:joint_state_flush_scheduled, false)
 
@@ -47,6 +60,14 @@ defmodule BB.LiveView.DashboardLive do
     end
 
     {:ok, socket}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_params(_params, uri, socket) do
+    # The camera stream is mounted beside this LiveView, so its URL is built
+    # from where the dashboard actually is — no host, scheme or mount point
+    # assumed, and a dashboard moved to /admin/arm keeps working.
+    {:noreply, assign(socket, :base_path, URI.parse(uri).path || "/")}
   end
 
   @impl Phoenix.LiveView
@@ -77,6 +98,21 @@ defmodule BB.LiveView.DashboardLive do
     send_update(EventStream,
       id: "event_stream",
       event: {:new_message, [:state_machine], message}
+    )
+
+    {:noreply, socket}
+  end
+
+  def handle_info(
+        {:bb, [:sensor | _rest] = path, %BB.Message{payload: %module{}} = message},
+        socket
+      )
+      when module in @camera_events do
+    send_update(Cameras, id: "cameras", event: :cameras_changed)
+
+    send_update(EventStream,
+      id: "event_stream",
+      event: {:new_message, path, message}
     )
 
     {:noreply, socket}
@@ -228,6 +264,15 @@ defmodule BB.LiveView.DashboardLive do
           </div>
 
           <div class="bb-dashboard-main-area">
+            <.widget title="Cameras">
+              <.live_component
+                module={Cameras}
+                id="cameras"
+                robot_module={@robot_module}
+                base_path={@base_path}
+              />
+            </.widget>
+
             <.widget title="3D Visualisation" class="bb-widget-visualisation">
               <.live_component module={Visualisation} id="visualisation" robot_module={@robot_module} />
             </.widget>

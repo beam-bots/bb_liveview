@@ -83,6 +83,7 @@ mix igniter.install bb_liveview --path /robot --robot MyApp.Robot
 | Option | Required | Meaning |
 |---|---|---|
 | `:robot` | yes | The robot module. Must `use BB` (i.e. export `robot/0`) |
+| `:camera_stream` | no | Keyword options for the camera preview route: `:first_frame_timeout` (default 5000ms) and `:frame_timeout` (default 10000ms) |
 
 Mount it more than once for multiple robots — each call gets its own
 `live_session`:
@@ -98,6 +99,31 @@ end
 Motion controls stay disabled until you arm the robot from the safety widget;
 this is the running robot's safety state, not a dashboard setting.
 
+## Cameras
+
+Cameras need no configuration. `bb_dashboard/2` also mounts an MJPEG route at
+`<path>/__bb_camera__/:camera/mjpeg`, and the Cameras widget discovers every
+camera the robot declares — a `BB.Sensor` that also implements `BB.Camera` —
+and previews it.
+
+1. **Video does not go through PubSub or the LiveView socket.** Frames reach
+   the browser only as an MJPEG HTTP response from that route, requested by an
+   `<img>`. PubSub carries camera *lifecycle* events only (capture started or
+   ended, settings applied or rejected), which the dashboard uses to refresh
+   the camera list.
+2. **The stream inherits the dashboard's pipeline, and nothing more.** The
+   route is defined inside the same scope, so a dashboard behind
+   `:require_admin` has a stream behind `:require_admin`. A public dashboard
+   has a public stream. The URL is guessable from the camera's name and is not
+   a credential.
+3. **`bb_camera` is optional.** Without it there are no cameras, the widget
+   says so, and the rest of the dashboard is unchanged. Override the seam with
+   `config :bb_liveview, :camera, MyImplementation` — the dev server uses this
+   to run a synthetic camera with no hardware.
+4. **A camera that is declared but offline is shown as offline**, not omitted.
+   Hiding it would make "no camera fitted" and "the camera is broken" look the
+   same.
+
 ## Anti-patterns
 
 - **Don't declare the dashboard in `topology`.** There is no component to
@@ -106,6 +132,9 @@ this is the running robot's safety state, not a dashboard setting.
 - **Don't serve the assets through the router/`:browser` pipeline.** The
   `Plug.Static` for `/__bb_assets__` belongs in the endpoint ahead of
   `Plug.Session`, or the CSRF check 403s the script.
+- **Don't push frames over LiveView.** Don't `push_event/3` image data, don't
+  base64 a frame into an assign, and don't publish frames on PubSub. The
+  `<img>`-plus-MJPEG route exists so bulk media never touches the socket.
 - **Don't mount against a robot that isn't started.** The module must export
   `robot/0` *and* have its supervision tree running; otherwise the page renders
   but shows no live state and controls do nothing.
@@ -114,5 +143,6 @@ this is the running robot's safety state, not a dashboard setting.
 
 - [bb_liveview docs](https://hexdocs.pm/bb_liveview) — including
   [Your First Dashboard](https://hexdocs.pm/bb_liveview/01-your-first-dashboard.html)
+  and [Preview Cameras](https://hexdocs.pm/bb_liveview/preview-cameras.html)
 - `bb`'s rules (`mix usage_rules.sync <file> bb:all`) and the
   [bb docs](https://hexdocs.pm/bb)

@@ -101,6 +101,23 @@ defmodule BB.LiveView.Components.CamerasTest do
       |> assert_has("[data-role=camera-placeholder]", text: "Waiting for the driver")
     end
 
+    @tag cameras: [
+           %{robot: BB.LiveView.CameraRobot, name: :eye},
+           %{robot: BB.LiveView.CameraRobot, name: :gripper_cam}
+         ]
+    test "pausing one camera leaves the other's connection alone", %{conn: conn} do
+      # Resuming changes the resumed camera's URL so the browser opens a fresh
+      # request for it. Every other camera's `src` must stay exactly as it was,
+      # or reviving one preview tears down and rebuilds all of them.
+      conn
+      |> visit("/camera_robot")
+      |> assert_has("[data-camera=gripper_cam] [data-role=camera-preview][src$='?g=0']")
+      |> click_button("[data-camera=eye] [data-role=camera-toggle]", "Pause")
+      |> click_button("[data-camera=eye] [data-role=camera-toggle]", "Resume")
+      |> assert_has("[data-camera=gripper_cam] [data-role=camera-preview][src$='?g=0']")
+      |> refute_has("[data-camera=eye] [data-role=camera-preview][src$='?g=0']")
+    end
+
     test "pausing drops the image, which is what closes the connection", %{conn: conn} do
       conn
       |> visit("/camera_robot")

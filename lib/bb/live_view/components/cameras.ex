@@ -24,7 +24,7 @@ defmodule BB.LiveView.Components.Cameras do
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
-    {:ok, assign(socket, cameras: [], paused: MapSet.new(), generation: 0, base_path: "/")}
+    {:ok, assign(socket, cameras: [], paused: MapSet.new(), generations: %{}, base_path: "/")}
   end
 
   @impl Phoenix.LiveComponent
@@ -54,10 +54,15 @@ defmodule BB.LiveView.Components.Cameras do
         do: MapSet.delete(paused, name),
         else: MapSet.put(paused, name)
 
+    # Only the toggled camera's URL moves. A counter shared across cameras
+    # would change every `src` on the page, and every other browser connection
+    # would be torn down and rebuilt to resume one of them.
+    generations = Map.update(socket.assigns.generations, name, 1, &(&1 + 1))
+
     {:noreply,
      socket
      |> assign(:paused, paused)
-     |> assign(:generation, socket.assigns.generation + 1)}
+     |> assign(:generations, generations)}
   end
 
   def handle_event("refresh", _params, socket) do
@@ -90,7 +95,7 @@ defmodule BB.LiveView.Components.Cameras do
               :if={previewing?(camera, @paused)}
               class="bb-camera-image"
               data-role="camera-preview"
-              src={preview_src(@base_path, camera, @generation)}
+              src={preview_src(@base_path, camera, @generations)}
               alt={"Live preview of #{Camera.label(camera)}"}
             />
             <p :if={!previewing?(camera, @paused)} class="bb-camera-placeholder" data-role="camera-placeholder">
@@ -139,9 +144,10 @@ defmodule BB.LiveView.Components.Cameras do
 
   defp placeholder_message(_camera, _paused), do: "Paused"
 
-  # The generation counter changes the URL when a preview resumes, so the
-  # browser opens a fresh request instead of reviving a cached one.
-  defp preview_src(base_path, camera, generation) do
+  # A per-camera counter changes that camera's URL when its preview resumes, so
+  # the browser opens a fresh request instead of reviving a cached one.
+  defp preview_src(base_path, camera, generations) do
+    generation = Map.get(generations, Atom.to_string(camera.name), 0)
     "#{Camera.stream_path(base_path, camera)}?g=#{generation}"
   end
 

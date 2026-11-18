@@ -8,7 +8,7 @@ defmodule BB.LiveView.Camera do
 
   A camera is an ordinary `BB.Sensor` callback module that also implements
   `BB.Camera`. Video never travels over BB PubSub — PubSub carries only
-  lifecycle events (capture begin/end, settings applied/rejected) — so the
+  lifecycle events (capture begin/end) and periodic capture telemetry — so the
   dashboard gets pixels solely through the bounded, demand-driven media session
   described below. `BB.LiveView.Plugs.CameraStream` turns one session into one
   MJPEG response.

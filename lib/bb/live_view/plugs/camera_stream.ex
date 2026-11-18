@@ -126,9 +126,10 @@ defmodule BB.LiveView.Plugs.CameraStream do
     Camera.close(session)
   end
 
-  # The session was opened with `format: :jpeg` asserted, but settings can move
-  # after discovery and a driver can renegotiate on first capture, so the bytes
-  # themselves get the last word — before any status is committed.
+  # The session was opened with `format: :jpeg` asserted, but a camera's
+  # options can change after discovery and a driver can renegotiate on first
+  # capture, so the bytes themselves get the last word — before any status is
+  # committed.
   defp first_frame(conn, session, frame, opts) do
     if jpeg?(frame) do
       conn

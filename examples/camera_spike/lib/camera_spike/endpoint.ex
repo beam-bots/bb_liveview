@@ -18,6 +18,7 @@ defmodule CameraSpike.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
+  plug(Plug.Static, at: "/__bb_assets__", from: {:bb_liveview, "priv/static"}, gzip: false)
   plug(Plug.Session, @session_options)
   plug(CameraSpike.Router)
 end

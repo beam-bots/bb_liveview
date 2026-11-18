@@ -32,9 +32,3 @@ priv/plts/
 # Node.js dependencies
 /assets/node_modules/
 
-# The example app builds in place; its sources are tracked, its artefacts
-# aren't.
-/examples/*/_build/
-/examples/*/deps/
-/examples/*/erl_crash.dump
-

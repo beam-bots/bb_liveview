@@ -42,14 +42,12 @@ defmodule BB.LiveView.DashboardLive do
   @tabs [visualisation: "3D view", cameras: "Cameras"]
 
   # Lifecycle events a camera publishes on the ordinary sensor topic. Frames
-  # never appear here — only the fact that capture started, stopped, or that
-  # settings moved — so seeing one means the camera list is stale, not that
-  # there are pixels to render.
+  # never appear here — only the fact that capture started or stopped — so
+  # seeing one means the camera list is stale, not that there are pixels to
+  # render.
   @camera_events [
-    BB.Message.Camera.ApplySettings,
     BB.Message.Camera.BeginCapture,
-    BB.Message.Camera.EndCapture,
-    BB.Message.Camera.RejectSettings
+    BB.Message.Camera.EndCapture
   ]
 
   @impl Phoenix.LiveView

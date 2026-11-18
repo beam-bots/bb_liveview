@@ -23,13 +23,10 @@ use the dashboard.
    the robot's PubSub (`:state_machine`, `:sensor`, `:param`) and reads live
    state. The robot's supervision tree must be started separately — the
    dashboard neither starts nor supervises the robot.
-3. **The bundle serves itself from the mount point.** `bb_dashboard/2` mounts
-   an asset route inside its own scope, and the page addresses it from the path
-   the dashboard is mounted at — so a dashboard at `/admin/arm` loads
-   `/admin/arm/__bb_assets__/dashboard.js`, through the same pipeline as the
-   page. Adding a `Plug.Static` for `/__bb_assets__` at your endpoint (what the
-   installer does) is a worthwhile optimisation, since it skips the pipeline
-   for a static file, but it is no longer required for the dashboard to work.
+3. **Serve the bundled assets at the endpoint, not through the router.** The
+   Three.js/CSS bundle must be served by a `Plug.Static` in your endpoint,
+   *before* `Plug.Session`. Serving it through the `:browser` pipeline trips
+   Phoenix's CSRF cross-origin protection and 403s the `dashboard.js` load.
 
 ## Mounting it
 
@@ -47,13 +44,7 @@ defmodule MyAppWeb.Router do
 end
 ```
 
-That is enough — the dashboard serves its own CSS and JavaScript from the path
-it is mounted at.
-
-Optionally, to serve the bundle straight from the endpoint and skip the
-router's pipeline for it (what the installer adds), put a `Plug.Static` ahead
-of `Plug.Session`. A dashboard mounted at `/` will use it; one mounted deeper
-addresses its own route instead, and both work.
+Then add the asset plug to your endpoint, **before** `Plug.Session`:
 
 ```elixir
 defmodule MyAppWeb.Endpoint do
@@ -138,9 +129,9 @@ and previews it.
 - **Don't declare the dashboard in `topology`.** There is no component to
   supervise — it is a `bb_dashboard/2` router mount in the host app, driven
   purely by the robot's PubSub.
-- **Don't assume the bundle lives at the root.** It is served under the
-  dashboard's own mount path. Hard-coding `/__bb_assets__/dashboard.js` works
-  only for a dashboard mounted at `/`.
+- **Don't serve the assets through the router/`:browser` pipeline.** The
+  `Plug.Static` for `/__bb_assets__` belongs in the endpoint ahead of
+  `Plug.Session`, or the CSRF check 403s the script.
 - **Don't push frames over LiveView.** Don't `push_event/3` image data, don't
   base64 a frame into an assign, and don't publish frames on PubSub. The
   `<img>`-plus-MJPEG route exists so bulk media never touches the socket.

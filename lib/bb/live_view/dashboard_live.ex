@@ -19,6 +19,7 @@ defmodule BB.LiveView.DashboardLive do
 
   import BB.LiveView.Components
 
+  alias BB.LiveView.Camera
   alias BB.LiveView.Components.Cameras
   alias BB.LiveView.Components.Command
   alias BB.LiveView.Components.EventStream
@@ -63,7 +64,7 @@ defmodule BB.LiveView.DashboardLive do
       |> assign(:joint_positions, %{})
       |> assign(:base_path, "/")
       |> assign(:tab, :visualisation)
-      |> assign(:tabs, @tabs)
+      |> assign(:tabs, visualisation: "3D view")
       |> assign(:latest_joint_message, nil)
       |> assign(:joint_state_flush_scheduled, false)
 
@@ -85,12 +86,17 @@ defmodule BB.LiveView.DashboardLive do
 
   @impl Phoenix.LiveView
   def handle_event("select_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :tab, resolve_tab(tab))}
+    {:noreply, assign(socket, :tab, resolve_tab(tab, socket.assigns.tabs))}
   end
 
   @impl Phoenix.LiveView
   def handle_info(:load_robot_data, socket) do
-    {:noreply, assign(socket, :loading, false)}
+    tabs =
+      if Camera.discover(socket.assigns.robot_module) == [],
+        do: [visualisation: "3D view"],
+        else: @tabs
+
+    {:noreply, assign(socket, loading: false, tabs: tabs)}
   end
 
   def handle_info({:bb, [:state_machine], %BB.Message{payload: payload} = message}, socket) do
@@ -277,7 +283,7 @@ defmodule BB.LiveView.DashboardLive do
 
           <div class="bb-dashboard-main-area">
             <.widget title="View" class="bb-widget-visualisation">
-              <div class="bb-view-tabs" role="tablist" aria-label="Visual area">
+              <div :if={length(@tabs) > 1} class="bb-view-tabs" role="tablist" aria-label="Visual area">
                 <button
                   :for={{id, label} <- @tabs}
                   type="button"
@@ -297,8 +303,8 @@ defmodule BB.LiveView.DashboardLive do
 
               <div
                 id="bb-view-panel-visualisation"
-                role="tabpanel"
-                aria-labelledby="bb-view-tab-visualisation"
+                role={if length(@tabs) > 1, do: "tabpanel"}
+                aria-labelledby={if length(@tabs) > 1, do: "bb-view-tab-visualisation"}
                 hidden={@tab != :visualisation}
               >
                 <.live_component
@@ -310,6 +316,7 @@ defmodule BB.LiveView.DashboardLive do
               </div>
 
               <div
+                :if={Keyword.has_key?(@tabs, :cameras)}
                 id="bb-view-panel-cameras"
                 role="tabpanel"
                 aria-labelledby="bb-view-tab-cameras"
@@ -371,8 +378,8 @@ defmodule BB.LiveView.DashboardLive do
 
   defp update_visualisation(_socket, _positions), do: :ok
 
-  defp resolve_tab(tab) do
-    Enum.find_value(@tabs, :visualisation, fn {id, _label} ->
+  defp resolve_tab(tab, tabs) do
+    Enum.find_value(tabs, :visualisation, fn {id, _label} ->
       if Atom.to_string(id) == tab, do: id
     end)
   end

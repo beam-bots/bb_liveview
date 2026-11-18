@@ -33,10 +33,11 @@ defmodule BB.LiveView.Components.CamerasTest do
       |> refute_has("*", text: "hunter2")
     end
 
-    test "a robot with no cameras says so", %{conn: conn} do
+    test "a robot with no cameras shows only the 3D view", %{conn: conn} do
       conn
       |> visit("/robot")
-      |> assert_has("[data-role=cameras-empty]", text: "This robot declares no cameras")
+      |> refute_has("[role=tablist]")
+      |> assert_has(".bb-visualisation")
     end
   end
 
@@ -46,10 +47,11 @@ defmodule BB.LiveView.Components.CamerasTest do
       :ok
     end
 
-    test "the dashboard explains rather than failing", %{conn: conn} do
+    test "the dashboard hides camera tabs without a camera package", %{conn: conn} do
       conn
-      |> open_cameras("/camera_robot")
-      |> assert_has("[data-role=cameras-empty]", text: "No camera package installed")
+      |> visit("/camera_robot")
+      |> refute_has("[role=tablist]")
+      |> assert_has(".bb-visualisation")
     end
 
     test "a dashboard with no cameras is otherwise unchanged", %{conn: conn} do

@@ -123,6 +123,11 @@ and previews it.
 4. **A camera that is declared but offline is shown as offline**, not omitted.
    Hiding it would make "no camera fitted" and "the camera is broken" look the
    same.
+5. **Opening the dashboard doesn't start a capture.** Requesting a preview is
+   what creates demand, so a camera that is running but idle offers a *Start
+   capturing* button and requests nothing until it is pressed. One that is
+   already capturing previews straight away, and the viewer's own start or
+   pause outranks both and survives refreshes of the camera list.
 
 ## Anti-patterns
 

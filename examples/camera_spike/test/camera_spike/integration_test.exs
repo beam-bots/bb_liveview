@@ -125,16 +125,28 @@ defmodule CameraSpike.IntegrationTest do
   end
 
   describe "the dashboard" do
-    test "previews the camera at the path it is mounted on", %{conn: conn} do
-      {:ok, view, _initial} = live(conn, "/robot")
-
-      # The dashboard sends itself a message on mount and renders its widgets
-      # when it arrives. `render/1` is a synchronous call to the same process,
-      # so it cannot overtake that message — no waiting involved.
-      html = render(view)
+    test "lists the camera but does not switch it on", %{conn: conn} do
+      html = dashboard(conn)
 
       assert html =~ "Cameras"
       assert html =~ ~s(data-camera="eye")
+      assert html =~ "Start capturing"
+
+      # No `<img>`, so no request, so nothing asked the camera to capture.
+      # Opening a dashboard should not start every camera on the robot.
+      refute html =~ "/robot/__bb_camera__/eye/mjpeg"
+      assert [%{status: :running}] = Camera.discover(Robot)
+    end
+
+    test "previews at the path it is mounted on once asked", %{conn: conn} do
+      {:ok, view, _initial} = live(conn, "/robot")
+      render(view)
+
+      html =
+        view
+        |> element("[data-camera=eye] [data-role=camera-toggle]")
+        |> render_click()
+
       assert html =~ "/robot/__bb_camera__/eye/mjpeg"
     end
   end
@@ -185,6 +197,14 @@ defmodule CameraSpike.IntegrationTest do
   # The driver confirms capture asynchronously after the first consumer
   # arrives, so an immediate `capture_frame/2` races that answer. The robot
   # says when it has started.
+  # The dashboard sends itself a message on mount and renders its widgets when
+  # it arrives. `render/1` is a synchronous call to the same process, so it
+  # cannot overtake that message — no waiting involved.
+  defp dashboard(conn) do
+    {:ok, view, _initial} = live(conn, "/robot")
+    render(view)
+  end
+
   defp await_capture(robot, camera) do
     BB.subscribe(robot, [:sensor, :base_link, camera])
 

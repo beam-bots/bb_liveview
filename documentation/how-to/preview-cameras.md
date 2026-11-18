@@ -45,6 +45,23 @@ consumer arrives and stops when the last one leaves.
 Pausing a preview removes the `<img>`, which closes the connection, which drops
 the consumer. Closing the browser tab does the same thing without being asked.
 
+## Opening the dashboard doesn't start anything
+
+Because requesting a preview is what starts the capture, a camera that is
+running but not capturing shows a **Start capturing** button and no picture.
+Nothing is requested until you press it. A dashboard with four cameras on it
+costs nothing to open.
+
+A camera that is *already* capturing previews immediately — watching it costs a
+connection and the bandwidth, but it doesn't start a capture that wasn't
+running. The same goes for one that starts capturing later for someone else's
+reasons: the picture appears when the robot says so.
+
+Your own choice wins over both. A preview you started shows before the camera
+has reported catching up — it has to, since the request is what makes it
+happen — and one you paused stays hidden even while the camera keeps capturing
+for others. Neither is forgotten when the camera list refreshes.
+
 ### Authentication
 
 The camera route is defined **inside the same scope as the dashboard**, so

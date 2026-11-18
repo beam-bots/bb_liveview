@@ -17,6 +17,26 @@ defmodule BB.LiveView.Components.Cameras do
   connection through the host's own pipeline. Pausing a preview removes the
   element, which closes that connection, which drops the consumer — and the
   camera stops capturing once the last one goes.
+
+  ## Opening the dashboard does not switch a camera on
+
+  Requesting a preview is what creates demand, and demand is what starts the
+  capture. So a camera that is merely *running* — its driver alive, nothing
+  capturing — renders no `<img>` and makes no request until someone asks for
+  one. Opening a dashboard should not spin up every camera on a robot, wake a
+  laptop's webcam light, or start paying for frames nobody is looking at.
+
+  A camera that is **already capturing** previews straight away. Watching it
+  still costs a connection, a consumer and the bandwidth to carry the frames —
+  what it doesn't cost is starting a capture that wasn't running. That includes
+  a camera that starts capturing later for someone else's reasons: the preview
+  appears when the robot says so.
+
+  What the viewer decides outranks both. Starting a preview shows it even
+  before the camera reports that it has caught up, and pausing one keeps it
+  hidden even while the camera carries on capturing for others. That choice
+  survives every routine refresh of the camera list, and is forgotten only when
+  the component is pointed at a different robot.
   """
   use Phoenix.LiveComponent
 
@@ -24,7 +44,7 @@ defmodule BB.LiveView.Components.Cameras do
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
-    {:ok, assign(socket, cameras: [], paused: MapSet.new(), generations: %{}, base_path: "/")}
+    {:ok, assign(socket, cameras: [], choices: %{}, generations: %{}, base_path: "/")}
   end
 
   @impl Phoenix.LiveComponent
@@ -37,7 +57,14 @@ defmodule BB.LiveView.Components.Cameras do
       if socket.assigns[:robot_module] == robot_module do
         socket
       else
-        assign(socket, cameras: Camera.discover(robot_module))
+        # A different robot's cameras are different cameras, whatever they are
+        # called, so neither the viewer's choices nor their cache-busting
+        # counters carry over.
+        assign(socket,
+          cameras: Camera.discover(robot_module),
+          choices: %{},
+          generations: %{}
+        )
       end
 
     {:ok, assign(socket, assigns)}
@@ -47,12 +74,7 @@ defmodule BB.LiveView.Components.Cameras do
 
   @impl Phoenix.LiveComponent
   def handle_event("toggle_preview", %{"camera" => name}, socket) do
-    paused = socket.assigns.paused
-
-    paused =
-      if MapSet.member?(paused, name),
-        do: MapSet.delete(paused, name),
-        else: MapSet.put(paused, name)
+    choice = if showing?(socket.assigns, name), do: :off, else: :on
 
     # Only the toggled camera's URL moves. A counter shared across cameras
     # would change every `src` on the page, and every other browser connection
@@ -61,7 +83,7 @@ defmodule BB.LiveView.Components.Cameras do
 
     {:noreply,
      socket
-     |> assign(:paused, paused)
+     |> assign(:choices, Map.put(socket.assigns.choices, name, choice))
      |> assign(:generations, generations)}
   end
 
@@ -92,14 +114,18 @@ defmodule BB.LiveView.Components.Cameras do
 
           <div class="bb-camera-view">
             <img
-              :if={previewing?(camera, @paused)}
+              :if={previewing?(camera, @choices)}
               class="bb-camera-image"
               data-role="camera-preview"
               src={preview_src(@base_path, camera, @generations)}
               alt={"Live preview of #{Camera.label(camera)}"}
             />
-            <p :if={!previewing?(camera, @paused)} class="bb-camera-placeholder" data-role="camera-placeholder">
-              {placeholder_message(camera, @paused)}
+            <p
+              :if={!previewing?(camera, @choices)}
+              class="bb-camera-placeholder"
+              data-role="camera-placeholder"
+            >
+              {placeholder_message(camera, @choices)}
             </p>
           </div>
 
@@ -114,7 +140,7 @@ defmodule BB.LiveView.Components.Cameras do
               phx-target={@myself}
               phx-value-camera={camera.name}
             >
-              {if paused?(camera, @paused), do: "Resume", else: "Pause"}
+              {toggle_label(camera, @choices)}
             </button>
           </div>
         </div>
@@ -131,18 +157,24 @@ defmodule BB.LiveView.Components.Cameras do
     end
   end
 
-  defp paused?(camera, paused), do: MapSet.member?(paused, Atom.to_string(camera.name))
+  defp choice(camera, choices), do: Map.get(choices, Atom.to_string(camera.name))
 
-  defp placeholder_message(%{status: :declared}, _paused),
+  defp placeholder_message(%{status: :declared}, _choices),
     do: "Offline — declared in the robot but not running"
 
-  defp placeholder_message(%{previewable?: false, stream: nil}, _paused),
+  defp placeholder_message(%{previewable?: false, stream: nil}, _choices),
     do: "Waiting for the driver to report a stream format"
 
-  defp placeholder_message(%{previewable?: false, stream: stream}, _paused),
+  defp placeholder_message(%{previewable?: false, stream: stream}, _choices),
     do: "#{inspect(stream.format)} can't be previewed as MJPEG"
 
-  defp placeholder_message(_camera, _paused), do: "Paused"
+  defp placeholder_message(camera, choices) do
+    if choice(camera, choices) == :off do
+      "Paused"
+    else
+      "Idle — nothing is capturing. Start a preview to begin."
+    end
+  end
 
   # A per-camera counter changes that camera's URL when its preview resumes, so
   # the browser opens a fresh request instead of reviving a cached one.
@@ -151,8 +183,32 @@ defmodule BB.LiveView.Components.Cameras do
     "#{Camera.stream_path(base_path, camera)}?g=#{generation}"
   end
 
-  defp previewing?(camera, paused) do
-    camera.previewable? and camera.status != :declared and not paused?(camera, paused)
+  # Watching is free when something else is already paying for the frames, and
+  # costs a capture when nothing is. The viewer's own choice beats both.
+  defp previewing?(camera, choices) do
+    camera.previewable? and camera.status != :declared and
+      case choice(camera, choices) do
+        :off -> false
+        :on -> true
+        nil -> camera.status == :capturing
+      end
+  end
+
+  defp showing?(assigns, name) do
+    assigns.cameras
+    |> Enum.find(&(Atom.to_string(&1.name) == name))
+    |> case do
+      nil -> false
+      camera -> previewing?(camera, assigns.choices)
+    end
+  end
+
+  defp toggle_label(camera, choices) do
+    cond do
+      previewing?(camera, choices) -> "Pause"
+      choice(camera, choices) == :off -> "Resume"
+      true -> "Start capturing"
+    end
   end
 
   defp status_text(:capturing), do: "Capturing"

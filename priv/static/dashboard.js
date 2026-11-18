@@ -9852,6 +9852,24 @@ var AutoScroll = {
   }
 };
 
+// js/hooks/camera_preview.js
+var BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+function stopStreaming(image) {
+  if (!image) {
+    return;
+  }
+  image.src = BLANK_IMAGE;
+  image.removeAttribute("src");
+}
+var CameraPreview = {
+  destroyed() {
+    stopStreaming(this.el);
+  },
+  beforeUpdate() {
+    stopStreaming(this.el);
+  }
+};
+
 // node_modules/three/build/three.module.js
 var REVISION = "170";
 var MOUSE = { LEFT: 0, MIDDLE: 1, RIGHT: 2, ROTATE: 0, DOLLY: 1, PAN: 2 };
@@ -31300,6 +31318,7 @@ var Visualisation = {
 // js/app.js
 var Hooks2 = {
   AutoScroll,
+  CameraPreview,
   Visualisation
 };
 var csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");

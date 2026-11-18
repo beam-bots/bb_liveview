@@ -39,8 +39,11 @@ defmodule BB.LiveView.Components.Cameras do
   for comparing them, and costs exactly what it looks like it costs.
 
   Anything hidden — by switching tab, by choosing another camera, by leaving
-  the grid — has its `<img>` removed, which closes that connection and drops
-  that consumer. The capture itself is not stopped: other consumers may be
+  the grid — has its `<img>` removed. Removal alone is *not* enough to stop the
+  stream: a `multipart/x-mixed-replace` response never ends on its own, and
+  browsers keep reading one whose element has been detached. The
+  `CameraPreview` hook cancels the request explicitly, which is what releases
+  the consumer. The capture itself is not stopped: other consumers may be
   watching, and that is the hub's decision, not this component's.
 
   A preview that was started and then hidden does not come back by itself,
@@ -178,6 +181,8 @@ defmodule BB.LiveView.Components.Cameras do
             <div class="bb-camera-view">
               <img
                 :if={previewing?(camera, @choices)}
+                id={"bb-camera-preview-#{camera.name}"}
+                phx-hook="CameraPreview"
                 class="bb-camera-image"
                 data-role="camera-preview"
                 src={preview_src(@base_path, camera, @generations)}

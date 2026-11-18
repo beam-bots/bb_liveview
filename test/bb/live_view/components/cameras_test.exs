@@ -309,6 +309,17 @@ defmodule BB.LiveView.Components.CamerasTest do
 
   describe "previews" do
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
+    test "carry the hook that cancels the stream when they go", %{conn: conn} do
+      # Removing the element is not enough: a multipart response never ends on
+      # its own and the browser keeps reading a detached one. Without this
+      # hook, Pause leaves the webcam light on.
+      conn
+      |> open_cameras("/camera_robot")
+      |> assert_has("[data-role=camera-preview][phx-hook=CameraPreview]")
+      |> assert_has("#bb-camera-preview-eye[data-role=camera-preview]")
+    end
+
+    @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
     test "point at the camera route under the dashboard's own mount path", %{conn: conn} do
       conn
       |> open_cameras("/camera_robot")

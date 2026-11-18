@@ -42,8 +42,17 @@ browser opens an ordinary HTTP connection and gets
 camera's single shared capture; the camera starts capturing when the first
 consumer arrives and stops when the last one leaves.
 
-Pausing a preview removes the `<img>`, which closes the connection, which drops
-the consumer. Closing the browser tab does the same thing without being asked.
+Pausing a preview cancels that request, which drops the consumer. Closing the
+browser tab does the same thing without being asked.
+
+Cancelling is explicit, and has to be. A `multipart/x-mixed-replace` response
+never ends on its own, and removing the `<img>` from the page does not stop
+Chrome or Firefox reading it — the connection stays open, the camera keeps a
+consumer, and the webcam light stays on. The `CameraPreview` hook assigns the
+element a blank data URL before it goes, which is what actually cancels the
+load. It cancels only this viewer's request: another browser watching the same
+camera keeps its own, and whether the capture then stops is the hub's decision,
+taken on its own subscriber count.
 
 ## Where the previews live
 

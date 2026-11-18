@@ -134,7 +134,9 @@ and previews it.
    already capturing previews straight away, and the viewer's own start or
    pause outranks both and survives refreshes of the camera list. A preview
    that goes off screen is dropped rather than remembered, so returning to the
-   tab doesn't restart a capture on its own.
+   tab doesn't restart a capture on its own. Cancelling a preview is explicit
+   — a multipart stream does not stop just because its `<img>` was removed —
+   so don't render preview images without the `CameraPreview` hook.
 
 ## Anti-patterns
 

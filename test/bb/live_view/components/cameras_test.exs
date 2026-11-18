@@ -101,6 +101,14 @@ defmodule BB.LiveView.Components.CamerasTest do
       |> assert_has("#bb-view-tab-cameras[role=tab][aria-controls=bb-view-panel-cameras]")
       |> assert_has("#bb-view-panel-cameras[role=tabpanel][aria-labelledby=bb-view-tab-cameras]")
     end
+
+    test "are all reachable from the keyboard", %{conn: conn} do
+      # No roving tabindex: without arrow-key handlers it would take the
+      # inactive tab out of the tab order and leave it reachable by nothing.
+      conn
+      |> visit("/camera_robot")
+      |> refute_has("[role=tab][tabindex]")
+    end
   end
 
   describe "leaving a camera behind" do

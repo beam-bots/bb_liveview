@@ -32,6 +32,12 @@ defmodule BB.LiveView.DashboardLive do
   # The visual area holds one of these at a time. Both are expensive to run —
   # one drives a WebGL context, the other holds open an HTTP stream per camera
   # — so only the chosen one exists.
+  #
+  # Every tab stays in the tab order. The ARIA pattern asks for a roving
+  # tabindex with arrow keys moving between tabs, but a roving tabindex
+  # without those key handlers takes the inactive tabs out of the tab order
+  # and leaves them reachable by nothing at all. Plain focusable buttons are
+  # worse than the full pattern and much better than half of it.
   @tabs [visualisation: "3D view", cameras: "Cameras"]
 
   # Lifecycle events a camera publishes on the ordinary sensor topic. Frames
@@ -282,7 +288,6 @@ defmodule BB.LiveView.DashboardLive do
                   data-tab={id}
                   aria-selected={to_string(@tab == id)}
                   aria-controls={"bb-view-panel-#{id}"}
-                  tabindex={if @tab == id, do: "0", else: "-1"}
                   phx-click="select_tab"
                   phx-value-tab={id}
                 >

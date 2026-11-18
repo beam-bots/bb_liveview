@@ -123,11 +123,18 @@ and previews it.
 4. **A camera that is declared but offline is shown as offline**, not omitted.
    Hiding it would make "no camera fitted" and "the camera is broken" look the
    same.
-5. **Opening the dashboard doesn't start a capture.** Requesting a preview is
+5. **The visual area is tabbed: 3D view or Cameras, never both.** A WebGL
+   context and live video streams are the two expensive things on the page, so
+   only the chosen one is mounted. Everything else — safety, commands, joints,
+   events, parameters — stays visible. The Cameras tab shows one camera at a
+   time with a selector, and a grid on request.
+6. **Opening the dashboard doesn't start a capture.** Requesting a preview is
    what creates demand, so a camera that is running but idle offers a *Start
    capturing* button and requests nothing until it is pressed. One that is
    already capturing previews straight away, and the viewer's own start or
-   pause outranks both and survives refreshes of the camera list.
+   pause outranks both and survives refreshes of the camera list. A preview
+   that goes off screen is dropped rather than remembered, so returning to the
+   tab doesn't restart a capture on its own.
 
 ## Anti-patterns
 

@@ -32,6 +32,21 @@ defmodule BB.LiveView.Components.Cameras do
   a camera that starts capturing later for someone else's reasons: the preview
   appears when the robot says so.
 
+  ## One camera at a time
+
+  The tab shows a single camera, chosen from a selector, because each preview
+  is a live HTTP connection and a robot can have several. A grid view is there
+  for comparing them, and costs exactly what it looks like it costs.
+
+  Anything hidden — by switching tab, by choosing another camera, by leaving
+  the grid — has its `<img>` removed, which closes that connection and drops
+  that consumer. The capture itself is not stopped: other consumers may be
+  watching, and that is the hub's decision, not this component's.
+
+  A preview that was started and then hidden does not come back by itself,
+  because coming back would silently restart a capture nobody asked for again.
+  A camera that is *capturing* when you return shows, as it always does.
+
   What the viewer decides outranks both. Starting a preview shows it even
   before the camera reports that it has caught up, and pausing one keeps it
   hidden even while the camera carries on capturing for others. That choice
@@ -44,12 +59,21 @@ defmodule BB.LiveView.Components.Cameras do
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
-    {:ok, assign(socket, cameras: [], choices: %{}, generations: %{}, base_path: "/")}
+    {:ok,
+     assign(socket,
+       base_path: "/",
+       cameras: [],
+       choices: %{},
+       generations: %{},
+       selected: nil,
+       view: :single,
+       visible: true
+     )}
   end
 
   @impl Phoenix.LiveComponent
   def update(%{event: :cameras_changed}, socket) do
-    {:ok, assign(socket, :cameras, Camera.discover(socket.assigns.robot_module))}
+    {:ok, socket |> assign(:cameras, Camera.discover(socket.assigns.robot_module)) |> settle()}
   end
 
   def update(%{robot_module: robot_module} = assigns, socket) do
@@ -63,14 +87,15 @@ defmodule BB.LiveView.Components.Cameras do
         assign(socket,
           cameras: Camera.discover(robot_module),
           choices: %{},
-          generations: %{}
+          generations: %{},
+          selected: nil
         )
       end
 
-    {:ok, assign(socket, assigns)}
+    {:ok, socket |> assign(assigns) |> settle()}
   end
 
-  def update(assigns, socket), do: {:ok, assign(socket, assigns)}
+  def update(assigns, socket), do: {:ok, socket |> assign(assigns) |> settle()}
 
   @impl Phoenix.LiveComponent
   def handle_event("toggle_preview", %{"camera" => name}, socket) do
@@ -87,8 +112,19 @@ defmodule BB.LiveView.Components.Cameras do
      |> assign(:generations, generations)}
   end
 
+  def handle_event("select_camera", %{"camera" => name}, socket) do
+    {:noreply, socket |> assign(:selected, resolve(socket, name)) |> settle()}
+  end
+
+  def handle_event("toggle_view", _params, socket) do
+    view = if socket.assigns.view == :grid, do: :single, else: :grid
+
+    {:noreply, socket |> assign(:view, view) |> settle()}
+  end
+
   def handle_event("refresh", _params, socket) do
-    {:noreply, assign(socket, :cameras, Camera.discover(socket.assigns.robot_module))}
+    {:noreply,
+     socket |> assign(:cameras, Camera.discover(socket.assigns.robot_module)) |> settle()}
   end
 
   @impl Phoenix.LiveComponent
@@ -99,49 +135,77 @@ defmodule BB.LiveView.Components.Cameras do
         <p class="bb-empty-state-message">{empty_message()}</p>
       </div>
 
-      <div :if={@cameras != []} class="bb-camera-grid">
-        <div
-          :for={camera <- @cameras}
-          class="bb-camera"
-          data-role="camera"
-          data-camera={camera.name}
-          data-status={camera.status}
-        >
-          <div class="bb-camera-header">
-            <span class="bb-camera-label">{Camera.label(camera)}</span>
-            <span class={"bb-camera-status #{camera.status}"}>{status_text(camera.status)}</span>
-          </div>
+      <div :if={@cameras != []}>
+        <div class="bb-camera-controls">
+          <form :if={@view == :single} phx-change="select_camera" phx-target={@myself}>
+            <label class="bb-camera-select-label" for="bb-camera-select">Camera</label>
+            <select id="bb-camera-select" name="camera" class="bb-camera-select">
+              <option :for={camera <- @cameras} value={camera.name} selected={shown?(camera, @selected)}>
+                {Camera.label(camera)}
+              </option>
+            </select>
+          </form>
 
-          <div class="bb-camera-view">
-            <img
-              :if={previewing?(camera, @choices)}
-              class="bb-camera-image"
-              data-role="camera-preview"
-              src={preview_src(@base_path, camera, @generations)}
-              alt={"Live preview of #{Camera.label(camera)}"}
-            />
-            <p
-              :if={!previewing?(camera, @choices)}
-              class="bb-camera-placeholder"
-              data-role="camera-placeholder"
-            >
-              {placeholder_message(camera, @choices)}
-            </p>
-          </div>
+          <span :if={@view == :grid} class="bb-camera-select-label">
+            All {length(@cameras)} cameras
+          </span>
 
-          <div class="bb-camera-footer">
-            <span class="bb-camera-stream">{stream_text(camera.stream)}</span>
-            <button
-              :if={camera.previewable? and camera.status != :declared}
-              type="button"
-              class="bb-camera-toggle"
-              data-role="camera-toggle"
-              phx-click="toggle_preview"
-              phx-target={@myself}
-              phx-value-camera={camera.name}
-            >
-              {toggle_label(camera, @choices)}
-            </button>
+          <button
+            type="button"
+            class="bb-camera-view-toggle"
+            data-role="camera-view-toggle"
+            aria-pressed={to_string(@view == :grid)}
+            phx-click="toggle_view"
+            phx-target={@myself}
+          >
+            {if @view == :grid, do: "Show one", else: "Compare all"}
+          </button>
+        </div>
+
+        <div class={["bb-camera-grid", @view == :grid && "bb-camera-grid-compare"]}>
+          <div
+            :for={camera <- visible_cameras(assigns)}
+            class="bb-camera"
+            data-role="camera"
+            data-camera={camera.name}
+            data-status={camera.status}
+          >
+            <div class="bb-camera-header">
+              <span class="bb-camera-label">{Camera.label(camera)}</span>
+              <span class={"bb-camera-status #{camera.status}"}>{status_text(camera.status)}</span>
+            </div>
+
+            <div class="bb-camera-view">
+              <img
+                :if={previewing?(camera, @choices)}
+                class="bb-camera-image"
+                data-role="camera-preview"
+                src={preview_src(@base_path, camera, @generations)}
+                alt={"Live preview of #{Camera.label(camera)}"}
+              />
+              <p
+                :if={!previewing?(camera, @choices)}
+                class="bb-camera-placeholder"
+                data-role="camera-placeholder"
+              >
+                {placeholder_message(camera, @choices)}
+              </p>
+            </div>
+
+            <div class="bb-camera-footer">
+              <span class="bb-camera-stream">{stream_text(camera.stream)}</span>
+              <button
+                :if={camera.previewable? and camera.status != :declared}
+                type="button"
+                class="bb-camera-toggle"
+                data-role="camera-toggle"
+                phx-click="toggle_preview"
+                phx-target={@myself}
+                phx-value-camera={camera.name}
+              >
+                {toggle_label(camera, @choices)}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -158,6 +222,52 @@ defmodule BB.LiveView.Components.Cameras do
   end
 
   defp choice(camera, choices), do: Map.get(choices, Atom.to_string(camera.name))
+
+  defp resolve(socket, name) do
+    socket.assigns.cameras
+    |> Enum.find(&(Atom.to_string(&1.name) == name))
+    |> case do
+      nil -> socket.assigns.selected
+      camera -> Atom.to_string(camera.name)
+    end
+  end
+
+  # Called after anything that can change which cameras are on screen. It
+  # keeps a selection pointing at a camera that exists, and forgets the
+  # intent to watch anything that has just been taken off screen — the
+  # `<img>` is gone, so the connection is gone, and silently reopening it
+  # later would start a capture nobody asked for a second time. A pause is a
+  # different thing and is kept.
+  defp settle(socket) do
+    socket = assign(socket, :selected, settled_selection(socket))
+    showing = socket |> visible_cameras() |> MapSet.new(&Atom.to_string(&1.name))
+
+    choices =
+      Map.filter(socket.assigns.choices, fn {name, choice} ->
+        choice == :off or MapSet.member?(showing, name)
+      end)
+
+    assign(socket, :choices, choices)
+  end
+
+  defp settled_selection(%{assigns: %{cameras: []}}), do: nil
+
+  defp settled_selection(%{assigns: %{cameras: cameras, selected: selected}}) do
+    names = Enum.map(cameras, &Atom.to_string(&1.name))
+
+    if selected in names, do: selected, else: List.first(names)
+  end
+
+  defp shown?(camera, selected), do: Atom.to_string(camera.name) == selected
+
+  defp visible_cameras(%{assigns: assigns}), do: visible_cameras(assigns)
+
+  defp visible_cameras(%{visible: false}), do: []
+  defp visible_cameras(%{view: :grid, cameras: cameras}), do: cameras
+
+  defp visible_cameras(%{cameras: cameras, selected: selected}) do
+    Enum.filter(cameras, &shown?(&1, selected))
+  end
 
   defp placeholder_message(%{status: :declared}, _choices),
     do: "Offline — declared in the robot but not running"

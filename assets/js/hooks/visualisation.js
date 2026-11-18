@@ -187,15 +187,54 @@ export const Visualisation = {
   cleanup() {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
+      this.animationId = null;
     }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
-    }
-    if (this.renderer) {
-      this.renderer.dispose();
+      this.resizeObserver = null;
     }
     if (this.controls) {
       this.controls.dispose();
+      this.controls = null;
     }
+    // Three.js does not free GPU memory when a scene is dropped: every
+    // geometry, material and texture holds a buffer until it is disposed by
+    // hand. This hook is mounted again every time the view is switched back
+    // to, so skipping this leaks a robot's worth of buffers per visit.
+    if (this.scene) {
+      this.disposeScene(this.scene);
+      this.scene = null;
+    }
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer.forceContextLoss?.();
+      this.renderer.domElement?.remove();
+      this.renderer = null;
+    }
+    this.robot = null;
+    this.camera = null;
+  },
+
+  disposeScene(scene) {
+    scene.traverse((object) => {
+      object.geometry?.dispose();
+
+      const materials = Array.isArray(object.material)
+        ? object.material
+        : object.material
+          ? [object.material]
+          : [];
+
+      for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (value && value.isTexture) {
+            value.dispose();
+          }
+        }
+        material.dispose();
+      }
+    });
+
+    scene.clear();
   },
 };

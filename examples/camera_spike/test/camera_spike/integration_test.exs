@@ -125,27 +125,35 @@ defmodule CameraSpike.IntegrationTest do
   end
 
   describe "the dashboard" do
-    test "lists the camera but does not switch it on", %{conn: conn} do
-      html = dashboard(conn)
+    test "opens on the 3D view, with no camera touched", %{conn: conn} do
+      {_view, html} = dashboard(conn)
 
+      assert html =~ "3D view"
       assert html =~ "Cameras"
+
+      # The camera panel renders nothing until it is chosen, so there is no
+      # `<img>`, no request, and nothing has asked the camera to capture.
+      refute html =~ ~s(data-role="camera-preview")
+      refute html =~ "/robot/__bb_camera__/eye/mjpeg"
+      assert [%{status: :running}] = Camera.discover(Robot)
+    end
+
+    test "lists the camera on its tab but still does not switch it on", %{conn: conn} do
+      {view, _html} = dashboard(conn)
+
+      html = click(view, "[data-role=view-tab][data-tab=cameras]")
+
       assert html =~ ~s(data-camera="eye")
       assert html =~ "Start capturing"
-
-      # No `<img>`, so no request, so nothing asked the camera to capture.
-      # Opening a dashboard should not start every camera on the robot.
       refute html =~ "/robot/__bb_camera__/eye/mjpeg"
       assert [%{status: :running}] = Camera.discover(Robot)
     end
 
     test "previews at the path it is mounted on once asked", %{conn: conn} do
-      {:ok, view, _initial} = live(conn, "/robot")
-      render(view)
+      {view, _html} = dashboard(conn)
 
-      html =
-        view
-        |> element("[data-camera=eye] [data-role=camera-toggle]")
-        |> render_click()
+      click(view, "[data-role=view-tab][data-tab=cameras]")
+      html = click(view, "[data-camera=eye] [data-role=camera-toggle]")
 
       assert html =~ "/robot/__bb_camera__/eye/mjpeg"
     end
@@ -202,7 +210,13 @@ defmodule CameraSpike.IntegrationTest do
   # cannot overtake that message — no waiting involved.
   defp dashboard(conn) do
     {:ok, view, _initial} = live(conn, "/robot")
-    render(view)
+    {view, render(view)}
+  end
+
+  defp click(view, selector) do
+    view
+    |> element(selector)
+    |> render_click()
   end
 
   defp await_capture(robot, camera) do

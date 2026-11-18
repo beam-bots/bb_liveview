@@ -1420,3 +1420,108 @@
 .bb-camera-toggle:hover {
   background: var(--bb-bg-secondary);
 }
+
+/* Visual area tabs */
+.bb-view-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--bb-border);
+  margin-bottom: 0.75rem;
+  overflow-x: auto;
+}
+
+.bb-view-tab {
+  padding: 0.625rem 1rem;
+  border: none;
+  background: transparent;
+  font-family: var(--bb-font);
+  font-size: 0.8125rem;
+  color: var(--bb-text-muted);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bb-view-tab:hover {
+  background: var(--bb-bg-secondary);
+}
+
+.bb-view-tab.active {
+  color: var(--bb-primary);
+  border-bottom-color: var(--bb-primary);
+  font-weight: 500;
+}
+
+.bb-view-tab:focus-visible {
+  outline: 2px solid var(--bb-primary);
+  outline-offset: -2px;
+}
+
+/* Camera selector */
+.bb-camera-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.bb-camera-controls form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 12rem;
+  margin: 0;
+}
+
+.bb-camera-select-label {
+  font-size: 0.75rem;
+  color: var(--bb-text-muted);
+  white-space: nowrap;
+}
+
+.bb-camera-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius);
+  background: var(--bb-bg);
+  color: var(--bb-text);
+  font-family: var(--bb-font);
+  font-size: 0.8125rem;
+}
+
+.bb-camera-view-toggle {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius);
+  background: var(--bb-bg);
+  color: var(--bb-text);
+  font-family: var(--bb-font);
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bb-camera-view-toggle[aria-pressed="true"] {
+  background: var(--bb-bg-secondary);
+  border-color: var(--bb-primary);
+  color: var(--bb-primary);
+}
+
+.bb-camera-grid-compare {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+@media (max-width: 480px) {
+  .bb-camera-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bb-camera-view-toggle {
+    width: 100%;
+  }
+}

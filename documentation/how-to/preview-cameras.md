@@ -45,6 +45,26 @@ consumer arrives and stops when the last one leaves.
 Pausing a preview removes the `<img>`, which closes the connection, which drops
 the consumer. Closing the browser tab does the same thing without being asked.
 
+## Where the previews live
+
+The dashboard's visual area is one panel with two tabs — **3D view** and
+**Cameras** — and opens on the 3D view. Safety, commands, joint control, the
+event stream and parameters are always on screen; only the expensive half is
+exclusive, because a WebGL context and a set of live video connections are not
+things to run side by side for no reason.
+
+The Cameras tab shows **one camera at a time**, picked from a selector, with a
+**Compare all** button for a grid when you want to see them together. Anything
+taken off screen — by switching tab, by choosing another camera, by leaving the
+grid — loses its `<img>`, which closes that HTTP connection and drops that
+consumer. It does not stop the capture: other consumers may be watching, and
+that is the camera hub's decision.
+
+A preview you started and then navigated away from does not resume by itself
+when you come back; that would restart a capture you only asked for once.
+Pressing Start again is one click. A camera that is still *capturing* when you
+return shows straight away, as it always does.
+
 ## Opening the dashboard doesn't start anything
 
 Because requesting a preview is what starts the capture, a camera that is

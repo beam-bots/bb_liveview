@@ -29,6 +29,11 @@ defmodule BB.LiveView.DashboardLive do
 
   @joint_state_throttle_ms 33
 
+  # The visual area holds one of these at a time. Both are expensive to run —
+  # one drives a WebGL context, the other holds open an HTTP stream per camera
+  # — so only the chosen one exists.
+  @tabs [visualisation: "3D view", cameras: "Cameras"]
+
   # Lifecycle events a camera publishes on the ordinary sensor topic. Frames
   # never appear here — only the fact that capture started, stopped, or that
   # settings moved — so seeing one means the camera list is stale, not that
@@ -51,6 +56,8 @@ defmodule BB.LiveView.DashboardLive do
       |> assign(:loading, true)
       |> assign(:joint_positions, %{})
       |> assign(:base_path, "/")
+      |> assign(:tab, :visualisation)
+      |> assign(:tabs, @tabs)
       |> assign(:latest_joint_message, nil)
       |> assign(:joint_state_flush_scheduled, false)
 
@@ -68,6 +75,11 @@ defmodule BB.LiveView.DashboardLive do
     # from where the dashboard actually is — no host, scheme or mount point
     # assumed, and a dashboard moved to /admin/arm keeps working.
     {:noreply, assign(socket, :base_path, URI.parse(uri).path || "/")}
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("select_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :tab, resolve_tab(tab))}
   end
 
   @impl Phoenix.LiveView
@@ -151,10 +163,7 @@ defmodule BB.LiveView.DashboardLive do
       event: {:positions_updated, positions}
     )
 
-    send_update(Visualisation,
-      id: "visualisation",
-      event: {:positions_updated, positions}
-    )
+    update_visualisation(socket, positions)
 
     send_update(EventStream,
       id: "event_stream",
@@ -209,10 +218,7 @@ defmodule BB.LiveView.DashboardLive do
 
   # Direct notification from JointControl for immediate visualisation update
   def handle_info({:joint_position_changed, positions}, socket) do
-    send_update(Visualisation,
-      id: "visualisation",
-      event: {:positions_updated, positions}
-    )
+    update_visualisation(socket, positions)
 
     {:noreply, socket}
   end
@@ -264,17 +270,54 @@ defmodule BB.LiveView.DashboardLive do
           </div>
 
           <div class="bb-dashboard-main-area">
-            <.widget title="Cameras">
-              <.live_component
-                module={Cameras}
-                id="cameras"
-                robot_module={@robot_module}
-                base_path={@base_path}
-              />
-            </.widget>
+            <.widget title="View" class="bb-widget-visualisation">
+              <div class="bb-view-tabs" role="tablist" aria-label="Visual area">
+                <button
+                  :for={{id, label} <- @tabs}
+                  type="button"
+                  role="tab"
+                  id={"bb-view-tab-#{id}"}
+                  class={["bb-view-tab", @tab == id && "active"]}
+                  data-role="view-tab"
+                  data-tab={id}
+                  aria-selected={to_string(@tab == id)}
+                  aria-controls={"bb-view-panel-#{id}"}
+                  tabindex={if @tab == id, do: "0", else: "-1"}
+                  phx-click="select_tab"
+                  phx-value-tab={id}
+                >
+                  {label}
+                </button>
+              </div>
 
-            <.widget title="3D Visualisation" class="bb-widget-visualisation">
-              <.live_component module={Visualisation} id="visualisation" robot_module={@robot_module} />
+              <div
+                id="bb-view-panel-visualisation"
+                role="tabpanel"
+                aria-labelledby="bb-view-tab-visualisation"
+                hidden={@tab != :visualisation}
+              >
+                <.live_component
+                  :if={@tab == :visualisation}
+                  module={Visualisation}
+                  id="visualisation"
+                  robot_module={@robot_module}
+                />
+              </div>
+
+              <div
+                id="bb-view-panel-cameras"
+                role="tabpanel"
+                aria-labelledby="bb-view-tab-cameras"
+                hidden={@tab != :cameras}
+              >
+                <.live_component
+                  module={Cameras}
+                  id="cameras"
+                  robot_module={@robot_module}
+                  base_path={@base_path}
+                  visible={@tab == :cameras}
+                />
+              </div>
             </.widget>
 
             <.widget title="Joint Control">
@@ -310,6 +353,23 @@ defmodule BB.LiveView.DashboardLive do
       </div>
     </header>
     """
+  end
+
+  # The 3D view only exists while its tab is chosen, and `send_update/3` to a
+  # component that isn't rendered is an error rather than a no-op.
+  defp update_visualisation(%{assigns: %{tab: :visualisation}}, positions) do
+    send_update(Visualisation,
+      id: "visualisation",
+      event: {:positions_updated, positions}
+    )
+  end
+
+  defp update_visualisation(_socket, _positions), do: :ok
+
+  defp resolve_tab(tab) do
+    Enum.find_value(@tabs, :visualisation, fn {id, _label} ->
+      if Atom.to_string(id) == tab, do: id
+    end)
   end
 
   defp get_robot_name(robot_module) do

@@ -45,6 +45,7 @@ config :camera_spike, CameraSpike.Endpoint,
     port: String.to_integer(System.get_env("PORT", "4001"))
   ],
   secret_key_base: String.duplicate("camera_spike_example_secret_key_base_", 2),
+  render_errors: [formats: [html: CameraSpike.ErrorHTML], layout: false],
   live_view: [signing_salt: "camera_spike_salt"],
   check_origin: false,
   server: config_env() != :test

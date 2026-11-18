@@ -37,5 +37,17 @@ defmodule BB.LiveView.TestRouter do
     bb_dashboard("/joint_robot", robot: BB.LiveView.JointRobot)
     bb_dashboard("/planar_robot", robot: BB.LiveView.PlanarRobot)
     bb_dashboard("/parameter_robot", robot: BB.LiveView.ParameterRobot)
+
+    # The case that always worked: mounted at the root, where a root-absolute
+    # asset URL happens to be correct.
+    bb_dashboard("/", robot: BB.LiveView.RootRobot)
+  end
+
+  # A dashboard inside an outer scope: the macro only ever sees "/arm", so
+  # anything that builds asset or camera URLs has to learn the "/admin" part
+  # from the request rather than from the macro.
+  scope "/admin" do
+    pipe_through(:browser)
+    bb_dashboard("/arm", robot: BB.LiveView.NestedRobot)
   end
 end

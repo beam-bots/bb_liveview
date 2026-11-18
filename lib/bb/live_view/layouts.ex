@@ -16,9 +16,14 @@ defmodule BB.LiveView.Layouts do
   @doc """
   Root layout that wraps all dashboard pages.
 
-  Includes the bundled CSS and JavaScript assets.
+  Includes the bundled CSS and JavaScript assets, addressed relative to the
+  path the dashboard is mounted at. `@base_path` is assigned by
+  `BB.LiveView.DashboardLive` from the request, and falls back to the root for
+  anything else that renders this layout.
   """
   def root(assigns) do
+    assigns = assign_new(assigns, :base_path, fn -> "/" end)
+
     ~H"""
     <!DOCTYPE html>
     <html lang="en">
@@ -27,8 +32,8 @@ defmodule BB.LiveView.Layouts do
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Phoenix.Controller.get_csrf_token()} />
         <title>{assigns[:page_title] || "BB Dashboard"}</title>
-        <link rel="stylesheet" href={Static.asset_path("dashboard.css")} />
-        <script type="module" src={Static.asset_path("dashboard.js")}>
+        <link rel="stylesheet" href={Static.asset_path(@base_path, "dashboard.css")} />
+        <script type="module" src={Static.asset_path(@base_path, "dashboard.js")}>
         </script>
       </head>
       <body class="bb-dashboard">

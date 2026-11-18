@@ -69,13 +69,21 @@ defmodule BB.LiveView.Router do
       scope path, alias: false, as: false do
         import Phoenix.LiveView.Router, only: [live: 3, live: 4, live_session: 3]
 
-        # Asset routes
+        # Asset routes. `Plug.CSRFProtection` refuses any non-XHR GET whose
+        # response is JavaScript, which is every `<script>` tag ever written —
+        # the check exists to stop another origin embedding a script that
+        # returns the signed-in user's data. This bundle is a fixed file from
+        # this library's `priv/static`, identical for every request and
+        # carrying nothing about anybody, so the check has nothing to protect
+        # here and would simply 403 the dashboard's own JavaScript. The flag is
+        # set on this one route: the dashboard, the camera streams and
+        # everything else in the host's pipeline keep it.
         get(
           "/__bb_assets__/:file",
           BB.LiveView.Plugs.Static,
           :call,
           as: :bb_dashboard_asset,
-          private: %{bb_dashboard_asset: true}
+          private: %{bb_dashboard_asset: true, plug_skip_csrf_protection: true}
         )
 
         # Inside the same scope, so the host's pipeline guards the camera

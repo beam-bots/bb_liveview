@@ -70,14 +70,38 @@ defmodule BB.LiveView.Plugs.Static do
   end
 
   @doc """
-  Returns the path to an asset file for use in templates.
+  Returns the root-absolute path to an asset.
+
+  Correct only for a dashboard mounted at `/`. A dashboard mounted anywhere
+  else serves its assets under its own path, so this answers a URL that 404s
+  unless the host application also happens to serve `priv/static` at
+  `/__bb_assets__` from its endpoint.
+  """
+  @deprecated "Use asset_path/2, which addresses assets under the dashboard's own mount"
+  @spec asset_path(String.t()) :: String.t()
+  def asset_path(file), do: asset_path("/", file)
+
+  @doc """
+  Returns the URL path an asset is served from, for use in templates.
+
+  Built from the path the dashboard is actually mounted at, because that is
+  where `BB.LiveView.Router.bb_dashboard/2` puts the asset route — inside the
+  dashboard's own scope, so the host's pipeline guards the bundle exactly as it
+  guards the page. A dashboard at `/admin/arm` serves
+  `/admin/arm/__bb_assets__/dashboard.js`; one at `/` serves
+  `/__bb_assets__/dashboard.js`.
+
+  The base path comes from the request, so a reverse proxy serving the app
+  under a prefix is handled without configuration, and several dashboards
+  mounted at different paths each reference their own.
 
   The path includes a hash of the file contents for cache busting.
   """
-  @spec asset_path(String.t()) :: String.t()
-  def asset_path(file) do
+  @spec asset_path(String.t(), String.t()) :: String.t()
+  def asset_path(base_path, file) do
     hash = asset_hash(file)
-    "/__bb_assets__/#{file}?v=#{hash}"
+    path = Path.join([base_path, "__bb_assets__", file])
+    "#{path}?v=#{hash}"
   end
 
   defp asset_hash(file) do

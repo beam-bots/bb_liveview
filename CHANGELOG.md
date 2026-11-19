@@ -11,6 +11,23 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.4.0](https://github.com/beam-bots/bb_liveview/compare/v0.3.4...v0.4.0) (2026-11-19)
+
+
+
+
+### Features:
+
+* Discover and preview robot cameras on the dashboard (#197) by James Harton
+
+### Improvements:
+
+* drop the joint control's catches for late and missing actuators (#173) by James Harton
+
+### Bug Fixes:
+
+* keep parameter rows' inputs with their own parameter across tabs (#165) by James Harton
+
 ## [v0.3.4](https://github.com/beam-bots/bb_liveview/compare/v0.3.3...v0.3.4) (2026-09-12)
 
 

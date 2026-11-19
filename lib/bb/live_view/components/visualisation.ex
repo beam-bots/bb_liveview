@@ -32,7 +32,14 @@ defmodule BB.LiveView.Components.Visualisation do
   @impl Phoenix.LiveComponent
   def update(%{event: {:positions_updated, positions}}, socket) do
     serialized = serialize_positions(positions, socket.assigns.topology)
-    {:ok, push_event(socket, "positions_updated", %{positions: serialized})}
+
+    # Kept as well as pushed. The hook reads `data-positions` when it mounts,
+    # and it mounts again every time this view is returned to, so the attribute
+    # has to hold the pose now rather than the pose when the dashboard opened.
+    {:ok,
+     socket
+     |> assign(:positions, serialized)
+     |> push_event("positions_updated", %{positions: serialized})}
   end
 
   def update(%{robot_module: robot_module} = assigns, socket) do

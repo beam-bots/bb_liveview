@@ -29,7 +29,7 @@ Main LiveView that:
 
 ### Components (`lib/bb/live_view/components/`)
 
-Six LiveComponents, each handling a specific concern:
+Seven LiveComponents, each handling a specific concern:
 
 | Component | File | Purpose |
 |-----------|------|---------|
@@ -39,12 +39,30 @@ Six LiveComponents, each handling a specific concern:
 | EventStream | `event_stream.ex` | PubSub message monitor |
 | Command | `command.ex` | Command execution forms |
 | Parameters | `parameters.ex` | Runtime parameter editor |
+| Cameras | `cameras.ex` | Camera discovery and MJPEG previews |
 
 ### JavaScript (`assets/js/`)
 
 - `app.js` - LiveView setup with hooks
 - `hooks/visualisation.js` - Three.js integration hook
 - `visualisation/` - Three.js scene builder and robot model
+
+### Cameras (`lib/bb/live_view/camera.ex`)
+
+`BB.LiveView.Camera` is the whole camera surface: the behaviour the dashboard
+consumes, the lookups built on it, and the seam
+(`config :bb_liveview, :camera`) that decides who implements it.
+`BB.LiveView.Camera.BBCamera` reaches the real `bb_camera` through `apply/3`
+behind `Code.ensure_loaded?/1`, which is what keeps that package optional.
+
+Frames never touch PubSub or the LiveView socket. `BB.LiveView.Plugs.CameraStream`
+serves one camera to one browser as MJPEG, mounted by `bb_dashboard/2` inside
+the dashboard's own scope so the host's pipeline guards it. See
+`documentation/how-to/preview-cameras.md`.
+
+`BB.LiveView.SyntheticCamera` (in `test/support`, so also available in `:dev`)
+implements the same seam with no hardware: `clock: :external` for deterministic
+tests, `clock: {:rate, hz}` for the dev server.
 
 ### Static Assets (`priv/static/`)
 
@@ -196,6 +214,9 @@ Key dependencies:
 | Shared components | `lib/bb/live_view/components.ex` |
 | Layouts | `lib/bb/live_view/layouts.ex` |
 | Static plug | `lib/bb/live_view/plugs/static.ex` |
+| Camera contract | `lib/bb/live_view/camera.ex` |
+| Camera MJPEG route | `lib/bb/live_view/plugs/camera_stream.ex` |
+| Synthetic camera | `test/support/synthetic_camera.ex` |
 | JS hooks | `assets/js/hooks/*.js` |
 | Three.js code | `assets/js/visualisation/*.js` |
 | CSS | `assets/css/dashboard.css` |

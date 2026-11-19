@@ -26,6 +26,12 @@ defmodule BB.LiveView.TestRouter do
   scope "/" do
     pipe_through(:browser)
     bb_dashboard("/robot", robot: BB.LiveView.TestRobot)
+
+    bb_dashboard("/camera_robot",
+      robot: BB.LiveView.CameraRobot,
+      camera_stream: [first_frame_timeout: 250, frame_timeout: 250]
+    )
+
     bb_dashboard("/command_robot", robot: BB.LiveView.CommandRobot)
     bb_dashboard("/dev_robot", robot: Dev.TestRobot)
     bb_dashboard("/joint_robot", robot: BB.LiveView.JointRobot)

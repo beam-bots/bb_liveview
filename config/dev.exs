@@ -7,6 +7,11 @@ import Config
 # Development configuration
 config :logger, level: :debug
 
+# The dev server has no camera hardware and `bb_camera` isn't a dependency of
+# this library, so the camera seam points at the synthetic implementation.
+# A real application sets this to `BB.Camera`, or leaves it unset.
+config :bb_liveview, :camera, BB.LiveView.SyntheticCamera
+
 # esbuild configuration
 config :esbuild, :version, "0.24.2"
 

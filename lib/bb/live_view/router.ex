@@ -31,6 +31,8 @@ defmodule BB.LiveView.Router do
       before the request is refused with a 503, default 5000ms) and
       `:frame_timeout` (how long a stalled camera is given before the response
       is ended, default 10000ms).
+    * `:drive` - Optional. Adds a Drive widget for hold-to-drive with the
+      keyboard or an on-screen pad. See `BB.LiveView.Drive`.
 
   ## Cameras
 
@@ -66,6 +68,12 @@ defmodule BB.LiveView.Router do
       robot = Keyword.fetch!(opts, :robot)
       camera_stream = Keyword.get(opts, :camera_stream, [])
 
+      drive =
+        case Keyword.fetch(opts, :drive) do
+          {:ok, drive_opts} -> BB.LiveView.Drive.new!(drive_opts)
+          :error -> nil
+        end
+
       scope path, alias: false, as: false do
         import Phoenix.LiveView.Router, only: [live: 3, live: 4, live_session: 3]
 
@@ -89,7 +97,10 @@ defmodule BB.LiveView.Router do
         )
 
         live_session :"bb_dashboard_#{robot}",
-          on_mount: [{BB.LiveView.Hooks.AssignRobot, robot}],
+          on_mount: [
+            {BB.LiveView.Hooks.AssignRobot, robot},
+            {BB.LiveView.Hooks.AssignDrive, drive}
+          ],
           root_layout: {BB.LiveView.Layouts, :root} do
           live("/", BB.LiveView.DashboardLive, :index)
         end

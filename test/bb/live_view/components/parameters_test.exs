@@ -140,6 +140,40 @@ defmodule BB.LiveView.Components.ParametersTest do
     end
   end
 
+  # The widget re-renders from the change notification the runtime publishes,
+  # not from what was typed, so these render once that round trip is done.
+  describe "showing a change" do
+    setup %{conn: conn} do
+      start_supervised!(ParameterRobot)
+      {:ok, view, _html} = live(conn, "/parameter_robot")
+      %{view: view}
+    end
+
+    test "moving a slider updates the number input beside it", %{view: view} do
+      view
+      |> form(~s([id="param-range-motion.gain"]), %{"value" => "0.8"})
+      |> render_change()
+
+      settled_render(view)
+      assert has_element?(view, ~s([id="param-number-motion.gain"] input[value="0.8"]))
+    end
+
+    test "a change made elsewhere updates the inputs", %{view: view} do
+      :ok = Parameter.set(ParameterRobot, [:motion, :taps], 12)
+
+      settled_render(view)
+      assert has_element?(view, ~s([id="param-range-motion.taps"] input[value="12"]))
+      assert has_element?(view, ~s([id="param-number-motion.taps"] input[value="12"]))
+    end
+
+    test "a change to an unbounded parameter updates its number input", %{view: view} do
+      :ok = Parameter.set(ParameterRobot, [:motion, :reach], Localize.Unit.new!(1.25, "meter"))
+
+      settled_render(view)
+      assert has_element?(view, ~s([id="param-number-motion.reach"] input[value="1.25"]))
+    end
+  end
+
   describe "refused writes" do
     setup %{conn: conn} do
       start_supervised!(ParameterRobot)
@@ -196,5 +230,16 @@ defmodule BB.LiveView.Components.ParametersTest do
       assert {:ok, %Localize.Unit{value: 2, name: "degree"}} =
                Parameter.get(Dev.TestRobot, [:balance, :catch_angle])
     end
+  end
+
+  # `Parameter.set/3` is a call into the runtime, which publishes the change
+  # before it replies, so by the time a write returns the notification is
+  # already in the dashboard's mailbox. The dashboard hands it to the widget
+  # with `send_update/2`, a message to itself, so it takes two calls to be
+  # behind the re-render: the first queues behind the notification, during
+  # which the update is sent, and the second queues behind the update.
+  defp settled_render(view) do
+    render(view)
+    render(view)
   end
 end

@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020",
+    "build": "NODE_PATH=../deps:../.. esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020",
     "build:css": "cp css/dashboard.css ../priv/static/dashboard.css",
     "build:all": "npm run build && npm run build:css",
-    "watch": "esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020 --watch",
+    "watch": "NODE_PATH=../deps:../.. esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020 --watch",
     "test": "node --test 'test/**/*.test.js'"
   },
   "dependencies": {

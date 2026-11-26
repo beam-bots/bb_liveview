@@ -18,4 +18,9 @@ defmodule BB.LiveView.CameraRobot do
       state: :idle
     }
   end
+
+  @doc "ICE servers for the dashboard mounted with them, read on every mount."
+  def ice_servers do
+    [%{urls: "turn:turn.example.com:3478", username: "robot", credential: "secret"}]
+  end
 end

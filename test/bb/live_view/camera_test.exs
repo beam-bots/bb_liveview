@@ -27,7 +27,23 @@ defmodule BB.LiveView.CameraTest do
     test "summarises the stream without the driver's metadata" do
       [camera] = Camera.discover(CameraRobot)
 
-      assert camera.stream == %{format: :jpeg, width: 160, height: 120, frame_rate: 10.0}
+      assert camera.stream == %{format: {:raw, :I420}, width: 160, height: 120, frame_rate: 10.0}
+    end
+
+    @tag cameras: [
+           %{
+             robot: BB.LiveView.CameraRobot,
+             name: :depth,
+             stream: %{format: {:raw, :Y16}, width: 64, height: 48, frame_rate: nil}
+           }
+         ]
+    test "only a raw I420 stream is previewable" do
+      assert [%{previewable?: false}] = Camera.discover(CameraRobot)
+    end
+
+    @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, stream: nil}]
+    test "a camera that hasn't reported a format isn't previewable yet" do
+      assert [%{previewable?: false, stream: nil}] = Camera.discover(CameraRobot)
     end
 
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye}]
@@ -43,40 +59,34 @@ defmodule BB.LiveView.CameraTest do
   end
 
   describe "with no camera package installed" do
-    setup do
-      Application.put_env(:bb_liveview, :camera, BB.LiveView.Camera.BBCamera)
-      :ok
-    end
+    @describetag available?: false
 
     test "nothing is available" do
       refute Camera.available?()
+      refute Camera.webrtc_available?()
     end
 
     test "every robot has no cameras" do
       assert Camera.discover(CameraRobot) == []
     end
 
-    test "opening a session says why rather than crashing" do
-      assert {:error, :no_camera_implementation} = Camera.open(CameraRobot, :eye)
+    test "watching says why rather than crashing" do
+      assert {:error, :no_webrtc} = Camera.watch(CameraRobot, :eye)
     end
   end
 
-  describe "fetch/2" do
-    test "resolves a declared camera by name" do
-      assert {:ok, %{name: :eye}} = Camera.fetch(CameraRobot, "eye")
+  describe "without bb_camera_webrtc" do
+    @describetag webrtc?: false
+
+    test "cameras are listed but can't be previewed" do
+      assert Camera.available?()
+      refute Camera.webrtc_available?()
+      assert [%{name: :eye, previewable?: false}] = Camera.discover(CameraRobot)
     end
 
-    test "misses on an unknown name without inventing an atom" do
-      name = "a_camera_that_has_never_existed"
-
-      assert :error = Camera.fetch(CameraRobot, name)
-
-      assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
-    end
-
-    test "misses on anything that isn't a string" do
-      assert :error = Camera.fetch(CameraRobot, :eye)
-      assert :error = Camera.fetch(CameraRobot, nil)
+    test "watching says why rather than crashing" do
+      assert {:error, :no_webrtc} = Camera.watch(CameraRobot, :eye)
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
     end
   end
 
@@ -92,101 +102,91 @@ defmodule BB.LiveView.CameraTest do
     end
   end
 
-  describe "stream_path/2" do
-    test "hangs the stream off wherever the dashboard is mounted" do
-      assert Camera.stream_path("/robot", :eye) == "/robot/__bb_camera__/eye/mjpeg"
-      assert Camera.stream_path("/", :eye) == "/__bb_camera__/eye/mjpeg"
-      assert Camera.stream_path("/admin/arm/", :eye) == "/admin/arm/__bb_camera__/eye/mjpeg"
-    end
-  end
+  describe "watch/3" do
+    test "streams on behalf of the caller, passing on its options" do
+      ice_servers = [%{urls: "stun:stun.example.com"}]
 
-  describe "demand" do
-    test "a consumer that reads slowly skips frames instead of queueing them" do
-      {:ok, session} = Camera.open(CameraRobot, :eye, format: :jpeg)
-
-      Enum.each(1..5, fn _ -> SyntheticCamera.capture(:eye) end)
-
-      # Nothing was asked for, so nothing was delivered: the five frames
-      # collapsed into one latest frame rather than five mailbox entries.
-      refute_received {:synthetic_camera_frame, _ref, _result}
-
-      assert {:ok, frame} = Camera.next(session, 1000)
-      assert frame.sequence == 5
-
-      Camera.close(session)
+      assert {:ok, watch} = Camera.watch(CameraRobot, :eye, ice_servers: ice_servers)
+      assert_received {:synthetic_camera, {:watching, :eye, ^watch, [ice_servers: ^ice_servers]}}
+      assert watch.viewer == self()
     end
 
-    test "each frame is newer than the last, so a reader can't spin on repeats" do
-      {:ok, session} = Camera.open(CameraRobot, :eye, format: :jpeg)
+    test "the stream's signalling arrives at the caller, and is recognised" do
+      {:ok, watch} = Camera.watch(CameraRobot, :eye)
+      offer = %{"type" => "sdp_offer", "data" => %{"type" => "offer", "sdp" => "v=0"}}
 
-      SyntheticCamera.capture(:eye)
-      assert {:ok, %{sequence: 1}} = Camera.next(session, 1000)
+      SyntheticCamera.to_browser(watch, offer)
 
-      # Nothing is capturing, so no frame can arrive: the session waits for one
-      # that doesn't exist rather than handing back sequence 1 a second time.
-      # That is what stops the MJPEG writer spinning on repeats.
-      assert {:error, :timeout} = Camera.next(session, 100)
-
-      SyntheticCamera.capture(:eye)
-      assert {:ok, %{sequence: 2}} = Camera.next(session, 1000)
-
-      Camera.close(session)
+      assert_received {SyntheticCamera, _ref, _event} = message
+      assert Camera.stream_message?(message)
+      assert Camera.stream_event(watch, message) == {:signal, offer}
     end
 
-    test "closing releases the consumer and stops the capture" do
-      {:ok, session} = Camera.open(CameraRobot, :eye, format: :jpeg)
-      assert_receive {:synthetic_camera, {:capture_started, :eye}}
-      assert SyntheticCamera.consumer_count(:eye) == 1
+    test "the caller is told when the stream ends" do
+      {:ok, watch} = Camera.watch(CameraRobot, :eye)
 
-      :ok = Camera.close(session)
+      SyntheticCamera.end_stream(watch)
 
-      assert_receive {:synthetic_camera, {:consumer_released, :eye, :closed}}
-      assert_receive {:synthetic_camera, {:capture_stopped, :eye}}
-      assert SyntheticCamera.consumer_count(:eye) == 0
+      assert_received {SyntheticCamera, _ref, _event} = message
+      assert Camera.stream_event(watch, message) == :ended
     end
 
-    test "one capture is shared by several consumers" do
-      {:ok, first} = Camera.open(CameraRobot, :eye, format: :jpeg)
-      assert_receive {:synthetic_camera, {:capture_started, :eye}}
+    test "one stream's messages mean nothing to another" do
+      {:ok, first} = Camera.watch(CameraRobot, :eye)
+      {:ok, second} = Camera.watch(CameraRobot, :eye)
 
-      {:ok, second} = Camera.open(CameraRobot, :eye, format: :jpeg)
-      assert SyntheticCamera.consumer_count(:eye) == 2
+      SyntheticCamera.end_stream(first)
 
-      Camera.close(first)
-      assert_receive {:synthetic_camera, {:consumer_released, :eye, :closed}}
-      refute_received {:synthetic_camera, {:capture_stopped, :eye}}
-
-      Camera.close(second)
-      assert_receive {:synthetic_camera, {:capture_stopped, :eye}}
+      assert_received {SyntheticCamera, _ref, _event} = message
+      assert Camera.stream_event(first, message) == :ended
+      assert Camera.stream_event(second, message) == nil
     end
 
-    test "closing a session twice is harmless" do
-      {:ok, session} = Camera.open(CameraRobot, :eye, format: :jpeg)
-
-      assert :ok = Camera.close(session)
-      assert :ok = Camera.close(session)
+    test "messages that aren't from a stream aren't claimed" do
+      refute Camera.stream_message?({:DOWN, make_ref(), :process, self(), :normal})
+      refute Camera.stream_message?(:load_robot_data)
     end
-  end
 
-  describe "open/3" do
+    test "unwatch/1 stops the stream" do
+      {:ok, watch} = Camera.watch(CameraRobot, :eye)
+
+      assert :ok = Camera.unwatch(watch)
+
+      assert_received {:synthetic_camera, {:unwatched, :eye, ^watch}}
+    end
+
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :declared}]
-    test "refuses a camera that isn't running" do
-      assert {:error, :not_running} = Camera.open(CameraRobot, :eye, format: :jpeg)
+    test "a camera that can't be watched is an error, not a crash" do
+      assert {:error, _reason} = Camera.watch(CameraRobot, :eye)
+    end
+  end
+
+  describe "signal/2" do
+    setup do
+      {:ok, watch} = Camera.watch(CameraRobot, :eye)
+      {:ok, watch: watch}
     end
 
-    @tag cameras: [
-           %{
-             robot: BB.LiveView.CameraRobot,
-             name: :depth,
-             stream: %{format: {:raw, :rgb8}, width: 64, height: 48, frame_rate: nil}
-           }
-         ]
-    test "refuses a format the browser can't render" do
-      assert {:error, :unsupported_format} = Camera.open(CameraRobot, :depth, format: :jpeg)
+    test "passes the browser's answer and candidates to the stream", %{watch: watch} do
+      answer = %{"type" => "sdp_answer", "data" => %{"type" => "answer", "sdp" => "v=0"}}
+      candidate = %{"type" => "ice_candidate", "data" => %{"candidate" => "candidate:1 1 UDP"}}
+
+      Camera.signal(watch, Map.merge(answer, %{"camera" => "eye", "session" => 1}))
+      Camera.signal(watch, candidate)
+
+      assert_received {:synthetic_camera, {:from_browser, :eye, ^answer}}
+      assert_received {:synthetic_camera, {:from_browser, :eye, ^candidate}}
     end
 
-    test "refuses a camera the robot doesn't have" do
-      assert {:error, :unknown_camera} = Camera.open(CameraRobot, :nonexistent, format: :jpeg)
+    test "drops the end-of-candidates marker and anything that isn't signalling", %{
+      watch: watch
+    } do
+      Camera.signal(watch, %{"type" => "ice_candidate", "data" => nil})
+      Camera.signal(watch, %{"type" => "ice_candidate", "data" => %{"candidate" => ""}})
+      Camera.signal(watch, %{"type" => "sdp_offer", "data" => %{"sdp" => "v=0"}})
+      Camera.signal(watch, %{"hello" => "world"})
+
+      refute_received {:synthetic_camera, {:from_browser, :eye, _message}}
     end
   end
 end

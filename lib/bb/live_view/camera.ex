@@ -4,35 +4,45 @@
 
 defmodule BB.LiveView.Camera do
   @moduledoc """
-  The slice of `bb_camera` the dashboard consumes, and the lookups built on it.
+  The slice of `bb_camera` and `bb_camera_webrtc` the dashboard consumes, and
+  the lookups built on it.
 
   A camera is an ordinary `BB.Sensor` callback module that also implements
-  `BB.Camera`. Video never travels over BB PubSub — PubSub carries only
-  lifecycle events (capture begin/end) and periodic capture telemetry — so the
-  dashboard gets pixels solely through the bounded, demand-driven media session
-  described below. `BB.LiveView.Plugs.CameraStream` turns one session into one
-  MJPEG response.
+  `BB.Camera`. Video never travels over BB PubSub or the LiveView socket —
+  PubSub carries only lifecycle events (capture begin/end) and periodic
+  capture telemetry, and the socket carries only the WebRTC signalling that
+  sets up a stream. The pixels go from the robot to the browser over WebRTC.
 
-  ## Demand
+  ## Watching
 
-  `open/3` delivers nothing by itself. Each `next/2` returns one frame
-  *strictly newer* than the one that session last returned, so a reader loop
-  runs at the camera's capture rate rather than at CPU speed, and a reader that
-  stops asking costs the camera nothing. The hub holds a single latest frame
-  per camera, so a slow consumer loses intermediate frames rather than
-  accumulating them.
+  `watch/3` starts streaming one camera to one browser on behalf of the calling
+  process, and returns a `t:watch/0`. The stream then sends the caller
+  messages whose shape is the implementation's business. Pass each one to
+  `stream_message?/1` to learn whether it belongs to a stream, and to
+  `stream_event/2` to learn what it means for a given watch:
 
-  ## Optional dependency
+    * `{:signal, message}` — signalling bound for the browser, `message`
+      being a JSON-shaped map (`%{"type" => "sdp_offer", "data" => ...}`);
+    * `:ended` — the camera stopped, the browser's connection failed, or the
+      pipeline went down. Watching again starts a fresh stream;
+    * `nil` — the message belongs to some other watch.
 
-  `bb_camera` is not a dependency of `bb_liveview`. Every call goes through
-  `implementation/0`, which is `BB.LiveView.Camera.BBCamera` by default and
-  reaches `bb_camera` only via `apply/3` behind `Code.ensure_loaded?/1`. With
-  no camera package installed `discover/1` answers `[]` for every robot, which
-  is the whole truth: a robot cannot declare a camera without the package,
-  because `use BB.Camera` would not compile.
+  `signal/2` hands the browser's replies back, and `unwatch/1` stops a stream,
+  as does the caller exiting.
 
-  Point the seam elsewhere to supply a different source — the dev server runs a
-  synthetic camera this way, and the tests drive it with a gated double:
+  ## Optional dependencies
+
+  Neither `bb_camera` nor `bb_camera_webrtc` is required. Every call goes
+  through `implementation/0`, which is `BB.LiveView.Camera.BBCamera` by
+  default and reaches both packages only via `apply/3` behind
+  `Code.ensure_loaded?/1`. With no camera package installed `discover/1`
+  answers `[]` for every robot, which is the whole truth: a robot cannot
+  declare a camera without the package, because `use BB.Camera` would not
+  compile. With `bb_camera` but no `bb_camera_webrtc` cameras are listed but
+  not previewable.
+
+  Point the seam elsewhere to supply a different source — the tests drive the
+  dashboard with a double this way:
 
       config :bb_liveview, :camera, MyCameraSource
   """
@@ -65,23 +75,42 @@ defmodule BB.LiveView.Camera do
           frame_rate: float | nil
         }
 
-  @type session :: term
+  @typedoc "A stream being watched. Opaque: only the implementation looks inside."
+  @type watch :: term
+
+  @typedoc "What a stream's message means for one watch."
+  @type stream_event :: {:signal, map} | :ended | nil
 
   @doc "Whether a camera implementation is installed."
   @callback available?() :: boolean
 
-  @doc "Closes a media session. Must not raise, whatever state the camera is in."
-  @callback close(session) :: :ok
-
   @doc "Every camera declared by a robot, running or not."
   @callback discover(robot :: module) :: [struct]
 
-  @doc "Waits for a frame newer than the last one this session returned."
-  @callback next(session, timeout) :: {:ok, struct} | {:error, term}
+  @doc "Hands a validated signalling message from the browser to a stream."
+  @callback signal(watch, message :: map) :: :ok
 
-  @doc "Opens one consumer on the camera's shared capture."
-  @callback open(robot :: module, camera :: atom, opts :: keyword) ::
-              {:ok, session} | {:error, term}
+  @doc "What `message`, received by the watching process, means for `watch`."
+  @callback stream_event(watch, message :: term) :: stream_event
+
+  @doc "Whether `message`, received by the watching process, came from a stream."
+  @callback stream_message?(message :: term) :: boolean
+
+  @doc """
+  Stops a stream started by `watch/3` from the same process. Afterwards the
+  caller receives nothing more about it. Harmless on one that has ended.
+  """
+  @callback unwatch(watch) :: :ok
+
+  @doc """
+  Starts streaming `camera` to a browser on behalf of the calling process,
+  which becomes the stream's signalling peer, until it unwatches or exits.
+  """
+  @callback watch(robot :: module, camera :: atom, opts :: keyword) ::
+              {:ok, watch} | {:error, term}
+
+  @doc "Whether cameras can be streamed to a browser."
+  @callback webrtc_available?() :: boolean
 
   @doc """
   Whether a camera implementation is installed.
@@ -95,21 +124,6 @@ defmodule BB.LiveView.Camera do
   end
 
   @doc """
-  Closes a media session.
-
-  Swallows a failing close. This runs in the cleanup path of an HTTP response
-  that has usually already been written, and a camera that died mid-stream is
-  exactly when close is most likely to be unhappy — letting it raise there
-  would replace a successful response with a 500.
-  """
-  @spec close(session) :: :ok
-  def close(session) do
-    implementation().close(session)
-  catch
-    _kind, _reason -> :ok
-  end
-
-  @doc """
   Every camera declared by `robot_module`, sanitised for display.
 
   Answers `[]` for anything that isn't a robot, and for every robot when no
@@ -118,35 +132,17 @@ defmodule BB.LiveView.Camera do
   @spec discover(module) :: [camera]
   def discover(robot_module) when is_atom(robot_module) do
     if available?() and robot?(robot_module) do
+      webrtc? = webrtc_available?()
+
       robot_module
       |> implementation().discover()
-      |> Enum.map(&describe/1)
+      |> Enum.map(&describe(&1, webrtc?))
     else
       []
     end
   end
 
   def discover(_robot_module), do: []
-
-  @doc """
-  Resolves a camera name taken from a request path.
-
-  Compares the string against the names already discovered rather than
-  converting it to an atom, so an unknown name is a miss instead of a new entry
-  in the atom table.
-  """
-  @spec fetch(module, String.t()) :: {:ok, camera} | :error
-  def fetch(robot_module, name) when is_binary(name) do
-    robot_module
-    |> discover()
-    |> Enum.find(&(Atom.to_string(&1.name) == name))
-    |> case do
-      nil -> :error
-      camera -> {:ok, camera}
-    end
-  end
-
-  def fetch(_robot_module, _name), do: :error
 
   @doc "The module implementing the camera contract."
   @spec implementation() :: module
@@ -162,48 +158,80 @@ defmodule BB.LiveView.Camera do
   def label(%{name: name}), do: humanise(name)
 
   @doc """
-  Waits for a frame newer than the last one this session returned.
+  Hands a signalling message from the browser to a stream.
 
-  Any error is a safe signal to stop streaming to this consumer: the camera
-  stopped, failed, died, or produced nothing inside the timeout.
+  Only an SDP answer or an ICE candidate is passed on. Anything else — the
+  `null` or empty candidate a browser sends when it has finished gathering, or
+  a message that isn't signalling at all — is dropped here rather than handed
+  to a WebRTC sink that would crash on it.
   """
-  @spec next(session, timeout) :: {:ok, struct} | {:error, term}
-  def next(session, timeout) do
-    implementation().next(session, timeout)
+  @spec signal(watch, map) :: :ok
+  def signal(watch, %{"type" => "sdp_answer", "data" => %{"sdp" => _} = data}) do
+    implementation().signal(watch, %{"type" => "sdp_answer", "data" => data})
+  end
+
+  def signal(watch, %{
+        "type" => "ice_candidate",
+        "data" => %{"candidate" => candidate} = data
+      })
+      when is_binary(candidate) and candidate != "" do
+    implementation().signal(watch, %{"type" => "ice_candidate", "data" => data})
+  end
+
+  def signal(_watch, _message), do: :ok
+
+  @doc "What `message`, received by the watching process, means for `watch`."
+  @spec stream_event(watch, term) :: stream_event
+  def stream_event(watch, message) do
+    implementation().stream_event(watch, message)
   end
 
   @doc """
-  Opens one consumer on a camera's shared capture.
-
-  The hub monitors the owner, so a browser disconnecting — or the connection
-  process crashing — releases the consumer and lets the capture stop. Asserting
-  `format: :jpeg` makes a camera that cannot be previewed fail here, loudly,
-  rather than hand back bytes the browser can't render.
+  Whether `message`, received by the watching process, came from a camera
+  stream — so a LiveView can pass it on without knowing what it looks like.
   """
-  @spec open(module, atom, keyword) :: {:ok, session} | {:error, term}
-  def open(robot_module, camera_name, opts \\ []) do
-    if available?() do
-      implementation().open(robot_module, camera_name, opts)
+  @spec stream_message?(term) :: boolean
+  def stream_message?(message) do
+    implementation().stream_message?(message)
+  end
+
+  @doc """
+  Stops a stream. Afterwards the caller receives nothing more about it.
+  Harmless on one that has already ended.
+  """
+  @spec unwatch(watch) :: :ok
+  def unwatch(watch) do
+    implementation().unwatch(watch)
+  end
+
+  @doc """
+  Starts streaming `camera_name` to a browser, on behalf of the calling
+  process. See "Watching" above.
+
+  ## Options
+
+    * `:ice_servers` — STUN and TURN servers for browsers that can't reach the
+      robot directly. None by default.
+  """
+  @spec watch(module, atom, keyword) :: {:ok, watch} | {:error, term}
+  def watch(robot_module, camera_name, opts \\ []) do
+    if webrtc_available?() do
+      implementation().watch(robot_module, camera_name, opts)
     else
-      {:error, :no_camera_implementation}
+      {:error, :no_webrtc}
     end
   end
 
   @doc """
-  The path a browser fetches an MJPEG preview from.
-
-  Built from the path the dashboard is actually mounted at, so a dashboard
-  under `/admin/arm` streams from `/admin/arm/__bb_camera__/…` without this
-  library knowing the host, the scheme or the mount point.
+  Whether cameras can be streamed to a browser — that is, whether
+  `bb_camera_webrtc` is installed.
   """
-  @spec stream_path(String.t(), camera | atom) :: String.t()
-  def stream_path(base_path, %{name: name}), do: stream_path(base_path, name)
-
-  def stream_path(base_path, name) when is_atom(name) do
-    Path.join([base_path, "__bb_camera__", Atom.to_string(name), "mjpeg"])
+  @spec webrtc_available?() :: boolean
+  def webrtc_available? do
+    available?() and implementation().webrtc_available?()
   end
 
-  defp describe(info) do
+  defp describe(info, webrtc?) do
     stream = describe_stream(info.stream_info)
 
     %{
@@ -214,7 +242,7 @@ defmodule BB.LiveView.Camera do
       attached_to: info.attached_to,
       status: info.status,
       stream: stream,
-      previewable?: match?(%{format: :jpeg}, stream)
+      previewable?: webrtc? and match?(%{format: {:raw, :I420}}, stream)
     }
   end
 

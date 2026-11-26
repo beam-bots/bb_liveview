@@ -32,8 +32,8 @@ defmodule BB.LiveView.DashboardLive do
   @joint_state_throttle_ms 33
 
   # The visual area holds one of these at a time. Both are expensive to run —
-  # one drives a WebGL context, the other holds open an HTTP stream per camera
-  # — so only the chosen one exists.
+  # one drives a WebGL context, the other a video stream per camera — so only
+  # the chosen one exists.
   #
   # Every tab stays in the tab order. The ARIA pattern asks for a roving
   # tabindex with arrow keys moving between tabs, but a roving tabindex
@@ -61,12 +61,12 @@ defmodule BB.LiveView.DashboardLive do
       |> assign(:connected, connected?(socket))
       |> assign(:loading, true)
       |> assign(:joint_positions, %{})
-      |> assign(:base_path, "/")
       |> assign(:tab, :visualisation)
       |> assign(:tabs, visualisation: "3D view")
       |> assign(:latest_joint_message, nil)
       |> assign(:joint_state_flush_scheduled, false)
       |> assign_new(:drive, fn -> nil end)
+      |> assign_new(:ice_servers, fn -> [] end)
 
     if connected?(socket) do
       subscribe_to_robot(robot_module)
@@ -74,14 +74,6 @@ defmodule BB.LiveView.DashboardLive do
     end
 
     {:ok, socket}
-  end
-
-  @impl Phoenix.LiveView
-  def handle_params(_params, uri, socket) do
-    # The camera stream is mounted beside this LiveView, so its URL is built
-    # from where the dashboard actually is — no host, scheme or mount point
-    # assumed, and a dashboard moved to /admin/arm keeps working.
-    {:noreply, assign(socket, :base_path, URI.parse(uri).path || "/")}
   end
 
   @impl Phoenix.LiveView
@@ -258,7 +250,14 @@ defmodule BB.LiveView.DashboardLive do
     {:noreply, socket}
   end
 
-  def handle_info(_msg, socket) do
+  # The camera streams the Cameras component watches from this process send it
+  # their signalling and their end. What those messages look like is the
+  # camera implementation's business, so they are recognised by asking it.
+  def handle_info(message, socket) do
+    if Keyword.has_key?(socket.assigns.tabs, :cameras) and Camera.stream_message?(message) do
+      send_update(Cameras, id: "cameras", event: {:stream_message, message})
+    end
+
     {:noreply, socket}
   end
 
@@ -334,7 +333,7 @@ defmodule BB.LiveView.DashboardLive do
                   module={Cameras}
                   id="cameras"
                   robot_module={@robot_module}
-                  base_path={@base_path}
+                  ice_servers={@ice_servers}
                   visible={@tab == :cameras}
                 />
               </div>

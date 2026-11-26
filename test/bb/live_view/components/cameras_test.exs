@@ -5,13 +5,31 @@
 defmodule BB.LiveView.Components.CamerasTest do
   use BB.LiveView.CameraCase
 
+  import Phoenix.LiveViewTest,
+    only: [
+      assert_push_event: 3,
+      element: 2,
+      form: 3,
+      has_element?: 2,
+      live: 2,
+      render: 1,
+      render_change: 1,
+      render_click: 1,
+      render_hook: 3
+    ]
+
+  import Phoenix.ConnTest, only: [get: 2]
+  import Phoenix.LiveView, only: [send_update: 3]
+
+  alias BB.LiveView.Components.Cameras
+
   describe "discovery" do
     test "lists the robot's cameras without being told about them", %{conn: conn} do
       conn
       |> open_cameras("/camera_robot")
       |> assert_has("[data-role=camera][data-camera=eye]")
       |> assert_has(".bb-camera-label", text: "Eye (link Head)")
-      |> assert_has(".bb-camera-stream", text: ":jpeg 160×120 @ 10.0 fps")
+      |> assert_has(".bb-camera-stream", text: "{:raw, :I420} 160×120 @ 10.0 fps")
     end
 
     @tag cameras: [
@@ -42,10 +60,7 @@ defmodule BB.LiveView.Components.CamerasTest do
   end
 
   describe "with no camera package installed" do
-    setup do
-      Application.put_env(:bb_liveview, :camera, BB.LiveView.Camera.BBCamera)
-      :ok
-    end
+    @describetag available?: false
 
     test "the dashboard hides camera tabs without a camera package", %{conn: conn} do
       conn
@@ -71,7 +86,7 @@ defmodule BB.LiveView.Components.CamerasTest do
       |> refute_has("[data-role=camera]")
       |> refute_has("[data-role=camera-preview]")
 
-      assert SyntheticCamera.consumer_count(:eye) == 0
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
     end
 
     test "swap which one is on screen", %{conn: conn} do
@@ -210,23 +225,25 @@ defmodule BB.LiveView.Components.CamerasTest do
       |> assert_has("[data-role=camera-placeholder]", text: "Idle — nothing is capturing")
       |> assert_has("[data-role=camera-toggle]", text: "Start capturing")
 
-      # The page made no request for frames, so the camera was never asked to
-      # capture. Opening a dashboard must not switch every camera on.
-      assert SyntheticCamera.consumer_count(:eye) == 0
-      refute_received {:synthetic_camera, {:capture_started, :eye}}
+      # Nothing was watched, so the camera was never asked to capture.
+      # Opening a dashboard must not switch every camera on.
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
     end
 
     test "previews once the viewer asks for it", %{conn: conn} do
       conn
       |> open_cameras("/camera_robot")
       |> click_button("[data-role=camera-toggle]", "Start capturing")
-      |> assert_has("[data-role=camera-preview][src^='/camera_robot/__bb_camera__/eye/mjpeg']")
+      |> assert_has("[data-role=camera-preview]")
       |> assert_has("[data-role=camera-toggle]", text: "Pause")
+
+      assert_received {:synthetic_camera, {:watching, :eye, _stream, _opts}}
     end
 
     test "stays shown while the camera is still catching up", %{conn: conn} do
-      # The `<img>` is what creates the demand, so it has to appear before the
-      # camera reports capturing — otherwise nothing would ever start.
+      # Watching is what creates the demand, so the preview has to appear
+      # before the camera reports capturing — otherwise nothing would ever
+      # start.
       conn
       |> open_cameras("/camera_robot")
       |> click_button("[data-role=camera-toggle]", "Start capturing")
@@ -309,21 +326,23 @@ defmodule BB.LiveView.Components.CamerasTest do
 
   describe "previews" do
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
-    test "carry the hook that cancels the stream when they go", %{conn: conn} do
-      # Removing the element is not enough: a multipart response never ends on
-      # its own and the browser keeps reading a detached one. Without this
-      # hook, Pause leaves the webcam light on.
+    test "play over WebRTC in the CameraPlayer hook", %{conn: conn} do
       conn
       |> open_cameras("/camera_robot")
-      |> assert_has("[data-role=camera-preview][phx-hook=CameraPreview]")
-      |> assert_has("#bb-camera-preview-eye[data-role=camera-preview]")
+      |> assert_has(
+        "video#bb-camera-video-eye-1[data-role=camera-preview][phx-hook=CameraPlayer]"
+      )
+      |> assert_has("[data-role=camera-preview][data-camera=eye][data-session='1']")
     end
 
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
-    test "point at the camera route under the dashboard's own mount path", %{conn: conn} do
+    test "hand the browser the dashboard's ICE servers", %{conn: conn} do
       conn
       |> open_cameras("/camera_robot")
-      |> assert_has("[data-role=camera-preview][src^='/camera_robot/__bb_camera__/eye/mjpeg']")
+      |> assert_has("[data-role=camera-preview][data-ice-servers*='turn:turn.example.com:3478']")
+
+      assert_received {:synthetic_camera, {:watching, :eye, _stream, opts}}
+      assert opts[:ice_servers] == CameraRobot.ice_servers()
     end
 
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :declared}]
@@ -342,13 +361,13 @@ defmodule BB.LiveView.Components.CamerasTest do
            %{
              robot: BB.LiveView.CameraRobot,
              name: :depth,
-             stream: %{format: {:raw, :rgb8}, width: 64, height: 48, frame_rate: nil}
+             stream: %{format: {:raw, :Y16}, width: 64, height: 48, frame_rate: nil}
            }
          ]
-    test "a camera the browser can't render says why", %{conn: conn} do
+    test "a camera the browser can't be sent says why", %{conn: conn} do
       conn
       |> open_cameras("/camera_robot")
-      |> assert_has("[data-role=camera-placeholder]", text: "can't be previewed as MJPEG")
+      |> assert_has("[data-role=camera-placeholder]", text: "only raw :I420 streams can")
       |> refute_has("[data-role=camera-preview]")
       |> refute_has("[data-role=camera-toggle]")
     end
@@ -365,40 +384,198 @@ defmodule BB.LiveView.Components.CamerasTest do
            %{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing},
            %{robot: BB.LiveView.CameraRobot, name: :gripper_cam, status: :capturing}
          ]
-    test "pausing one camera leaves the other's connection alone", %{conn: conn} do
-      # Resuming changes the resumed camera's URL so the browser opens a fresh
-      # request for it. Every other camera's `src` must stay exactly as it was,
-      # or reviving one preview tears down and rebuilds all of them.
+    test "pausing one camera leaves the other's stream alone", %{conn: conn} do
+      # Resuming starts a new session for the resumed camera only. Every other
+      # camera's element must stay exactly as it was, or reviving one preview
+      # tears down and rebuilds all of them.
       conn
       |> open_cameras("/camera_robot")
       |> click_button("[data-role=camera-view-toggle]", "Compare all")
-      |> assert_has("[data-camera=gripper_cam] [data-role=camera-preview][src$='?g=0']")
+      |> assert_has("#bb-camera-video-gripper_cam-1")
       |> click_button("[data-camera=eye] [data-role=camera-toggle]", "Pause")
       |> click_button("[data-camera=eye] [data-role=camera-toggle]", "Resume")
-      |> assert_has("[data-camera=gripper_cam] [data-role=camera-preview][src$='?g=0']")
-      |> refute_has("[data-camera=eye] [data-role=camera-preview][src$='?g=0']")
+      |> assert_has("#bb-camera-video-gripper_cam-1")
+      |> assert_has("#bb-camera-video-eye-2")
     end
 
     @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
-    test "pausing drops the image, which is what closes the connection", %{conn: conn} do
-      conn
-      |> open_cameras("/camera_robot")
-      |> assert_has("[data-role=camera-preview]")
+    test "pausing drops the video and stops the stream", %{conn: conn} do
+      session = open_cameras(conn, "/camera_robot")
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+
+      session
       |> click_button("[data-role=camera-toggle]", "Pause")
       |> refute_has("[data-role=camera-preview]")
       |> assert_has("[data-role=camera-placeholder]", text: "Paused")
+
+      assert_received {:synthetic_camera, {:unwatched, :eye, ^stream}}
+
+      session
       |> click_button("[data-role=camera-toggle]", "Resume")
       |> assert_has("[data-role=camera-preview]")
+
+      assert_received {:synthetic_camera, {:watching, :eye, _stream, _opts}}
+    end
+  end
+
+  describe "without bb_camera_webrtc" do
+    @describetag webrtc?: false
+
+    test "the camera is listed, and the tab says how to preview it", %{conn: conn} do
+      conn
+      |> open_cameras("/camera_robot")
+      |> assert_has("[data-role=camera][data-camera=eye]")
+      |> assert_has("[data-role=camera-placeholder]", text: "Previews need bb_camera_webrtc")
+      |> refute_has("[data-role=camera-toggle]")
+      |> refute_has("[data-role=camera-preview]")
+    end
+
+    @tag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
+    test "even a capturing camera isn't watched", %{conn: conn} do
+      conn
+      |> open_cameras("/camera_robot")
+      |> refute_has("[data-role=camera-preview]")
+
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
+    end
+  end
+
+  describe "streaming" do
+    @describetag cameras: [%{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing}]
+
+    @offer %{"type" => "sdp_offer", "data" => %{"type" => "offer", "sdp" => "v=0"}}
+    @answer %{"type" => "sdp_answer", "data" => %{"type" => "answer", "sdp" => "v=0"}}
+
+    test "a visible camera is watched once", %{conn: conn} do
+      _view = live_cameras(conn)
+
+      assert_received {:synthetic_camera, {:watching, :eye, _stream, _opts}}
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
+    end
+
+    test "the camera's signalling reaches the browser", %{conn: conn} do
+      view = live_cameras(conn)
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+
+      SyntheticCamera.to_browser(stream, @offer)
+
+      assert_push_event(view, "webrtc_signaling-bb-camera-video-eye-1", @offer)
+    end
+
+    test "the browser's signalling reaches the camera", %{conn: conn} do
+      view = live_cameras(conn)
+
+      view
+      |> element("#bb-camera-video-eye-1")
+      |> render_hook("webrtc_signaling", Map.merge(@answer, %{"camera" => "eye", "session" => 1}))
+
+      assert_received {:synthetic_camera, {:from_browser, :eye, @answer}}
+    end
+
+    test "signalling from a session that has ended is dropped", %{conn: conn} do
+      view = live_cameras(conn)
+      candidate = %{"type" => "ice_candidate", "data" => %{"candidate" => "candidate:1"}}
+
+      view
+      |> element("#bb-camera-video-eye-1")
+      |> render_hook("webrtc_signaling", Map.merge(@answer, %{"camera" => "eye", "session" => 0}))
+
+      refute_received {:synthetic_camera, {:from_browser, :eye, _message}}
+
+      view
+      |> element("#bb-camera-video-eye-1")
+      |> render_hook(
+        "webrtc_signaling",
+        Map.merge(candidate, %{"camera" => "eye", "session" => 1})
+      )
+
+      assert_received {:synthetic_camera, {:from_browser, :eye, ^candidate}}
+    end
+
+    test "a stream that ends is watched again at once, in a new session", %{conn: conn} do
+      view = live_cameras(conn)
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+      SyntheticCamera.to_browser(stream, @offer)
+      assert_push_event(view, "webrtc_signaling-bb-camera-video-eye-1", @offer)
+
+      SyntheticCamera.end_stream(stream)
+
+      assert render(view) =~ "bb-camera-video-eye-2"
+      assert_received {:synthetic_camera, {:watching, :eye, again, _opts}}
+      SyntheticCamera.to_browser(again, @offer)
+      assert_push_event(view, "webrtc_signaling-bb-camera-video-eye-2", @offer)
+
+      assert has_element?(view, "#bb-camera-video-eye-2")
+      refute has_element?(view, "#bb-camera-video-eye-1")
+    end
+
+    test "a stream that ends before it says anything is retried later", %{conn: conn} do
+      view = live_cameras(conn)
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+
+      SyntheticCamera.end_stream(stream)
+
+      assert render(view) =~ "trying again shortly"
+      refute has_element?(view, "[data-role=camera-preview]")
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
+
+      send_update(view.pid, Cameras, id: "cameras", event: {:retry, "eye", 1})
+
+      assert_receive {:synthetic_camera, {:watching, :eye, _again, _opts}}
+      assert has_element?(view, "#bb-camera-video-eye-2")
+    end
+
+    test "a retry that is no longer wanted does nothing", %{conn: conn} do
+      view = live_cameras(conn)
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+      SyntheticCamera.end_stream(stream)
+
+      view |> element("[data-role=camera-toggle]") |> render_click()
+      send_update(view.pid, Cameras, id: "cameras", event: {:retry, "eye", 1})
+
+      assert render(view) =~ "Paused"
+      refute_received {:synthetic_camera, {:watching, _camera, _stream, _opts}}
+    end
+
+    test "switching to the 3D view stops watching", %{conn: conn} do
+      view = live_cameras(conn)
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+
+      view |> element("[data-role=view-tab][data-tab=visualisation]") |> render_click()
+
+      assert_received {:synthetic_camera, {:unwatched, :eye, ^stream}}
+    end
+
+    @tag cameras: [
+           %{robot: BB.LiveView.CameraRobot, name: :eye, status: :capturing},
+           %{robot: BB.LiveView.CameraRobot, name: :gripper_cam, status: :capturing}
+         ]
+    test "choosing another camera stops watching the first", %{conn: conn} do
+      view = live_cameras(conn)
+      assert_received {:synthetic_camera, {:watching, :eye, stream, _opts}}
+
+      view |> form("form[phx-change=select_camera]", camera: "gripper_cam") |> render_change()
+
+      assert_received {:synthetic_camera, {:unwatched, :eye, ^stream}}
+      assert_received {:synthetic_camera, {:watching, :gripper_cam, _stream, _opts}}
     end
   end
 
   # Every camera assertion needs the Cameras tab open: the 3D view is the
-  # default, and the camera panel renders nothing — no `<img>`, no request —
+  # default, and the camera panel renders nothing — no `<video>`, no stream —
   # until it is the chosen one.
   defp open_cameras(conn, path) do
     conn
     |> visit(path)
     |> click_button("[data-role=view-tab][data-tab=cameras]", "Cameras")
+  end
+
+  # The same, driven through `Phoenix.LiveViewTest` for the tests that need
+  # the view itself: its pushed events and its hook events.
+  defp live_cameras(conn) do
+    {:ok, view, _html} = live(conn, "/camera_robot")
+    view |> element("[data-role=view-tab][data-tab=cameras]") |> render_click()
+    view
   end
 
   # The dashboard forwards a camera's lifecycle events to this component, which

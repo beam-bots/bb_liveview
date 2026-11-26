@@ -29,9 +29,10 @@ defmodule BB.LiveView.TestRouter do
 
     bb_dashboard("/camera_robot",
       robot: BB.LiveView.CameraRobot,
-      camera_stream: [first_frame_timeout: 250, frame_timeout: 250]
+      ice_servers: {BB.LiveView.CameraRobot, :ice_servers, []}
     )
 
+    bb_dashboard("/web_rtc_robot", robot: BB.LiveView.WebRTCRobot)
     bb_dashboard("/command_robot", robot: BB.LiveView.CommandRobot)
     bb_dashboard("/dev_robot", robot: Dev.TestRobot)
     bb_dashboard("/joint_robot", robot: BB.LiveView.JointRobot)

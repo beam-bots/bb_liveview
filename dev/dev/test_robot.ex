@@ -51,6 +51,10 @@ defmodule Dev.TestRobot do
 
   topology do
     link :base_link do
+      # A real `bb_camera` camera with no hardware behind it, previewed over
+      # WebRTC exactly as a USB camera would be.
+      sensor(:head_camera, {BB.Camera.Synthetic, width: 640, height: 480, clock: {:rate, 30}})
+
       visual do
         origin do
           z(~u(0.036 meter))

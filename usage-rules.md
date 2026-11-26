@@ -83,7 +83,7 @@ mix igniter.install bb_liveview --path /robot --robot MyApp.Robot
 | Option | Required | Meaning |
 |---|---|---|
 | `:robot` | yes | The robot module. Must `use BB` (i.e. export `robot/0`) |
-| `:camera_stream` | no | Keyword options for the camera preview route: `:first_frame_timeout` (default 5000ms) and `:frame_timeout` (default 10000ms) |
+| `:ice_servers` | no | STUN/TURN servers for camera previews: a list of maps (`%{urls: ..., username: ..., credential: ...}`) or a `{module, function, args}` returning one on each mount. None by default |
 
 Mount it more than once for multiple robots — each call gets its own
 `live_session`:
@@ -101,42 +101,44 @@ this is the running robot's safety state, not a dashboard setting.
 
 ## Cameras
 
-Cameras need no configuration. `bb_dashboard/2` also mounts an MJPEG route at
-`<path>/__bb_camera__/:camera/mjpeg`, and the Cameras widget discovers every
-camera the robot declares — a `BB.Sensor` that also implements `BB.Camera` —
-and previews it.
+The Cameras widget discovers every camera the robot declares — a `BB.Sensor`
+that also implements `BB.Camera` — and previews it over WebRTC with
+`bb_camera_webrtc`.
 
 1. **Video does not go through PubSub or the LiveView socket.** Frames reach
-   the browser only as an MJPEG HTTP response from that route, requested by an
-   `<img>`. PubSub carries camera *lifecycle* events only (capture started or
-   ended, settings applied or rejected), which the dashboard uses to refresh
-   the camera list.
-2. **The stream inherits the dashboard's pipeline, and nothing more.** The
-   route is defined inside the same scope, so a dashboard behind
-   `:require_admin` has a stream behind `:require_admin`. A public dashboard
-   has a public stream. The URL is guessable from the camera's name and is not
-   a credential.
-3. **`bb_camera` is optional.** Without it there are no cameras, the widget
-   says so, and the rest of the dashboard is unchanged. Override the seam with
-   `config :bb_liveview, :camera, MyImplementation` — the dev server uses this
-   to run a synthetic camera with no hardware.
-4. **A camera that is declared but offline is shown as offline**, not omitted.
+   the browser over WebRTC; the socket carries only the signalling that sets
+   the connection up. PubSub carries camera *lifecycle* events only (capture
+   started or ended), which the dashboard uses to refresh the camera list.
+2. **Previews need `bb_camera_webrtc`, and a raw `:I420` camera.** Both
+   `bb_camera` and `bb_camera_webrtc` are optional. Without `bb_camera` there
+   are no cameras; without `bb_camera_webrtc` cameras are listed and the tab
+   says how to enable previews. Add `{:decimal, "~> 3.0", override: true}`
+   alongside it — Membrane's `ratio` pins `decimal` lower, and only your own
+   `mix.exs` can override that.
+3. **No STUN or TURN by default.** The browser must reach the robot directly —
+   the same network, or a VPN such as Tailscale. A browser behind NAT (a phone
+   on mobile data) needs a TURN server, given as `:ice_servers`; prefer the
+   `{module, function, args}` form so credentials are read at runtime rather
+   than compiled into the router.
+4. **Signalling inherits the dashboard's pipeline.** It travels over the
+   dashboard's own LiveView socket, so there is no extra route to guard.
+5. **A camera that is declared but offline is shown as offline**, not omitted.
    Hiding it would make "no camera fitted" and "the camera is broken" look the
    same.
-5. **The visual area is tabbed: 3D view or Cameras, never both.** A WebGL
+6. **The visual area is tabbed: 3D view or Cameras, never both.** A WebGL
    context and live video streams are the two expensive things on the page, so
    only the chosen one is mounted. Everything else — safety, commands, joints,
    events, parameters — stays visible. The Cameras tab shows one camera at a
    time with a selector, and a grid on request.
-6. **Opening the dashboard doesn't start a capture.** Requesting a preview is
-   what creates demand, so a camera that is running but idle offers a *Start
-   capturing* button and requests nothing until it is pressed. One that is
-   already capturing previews straight away, and the viewer's own start or
-   pause outranks both and survives refreshes of the camera list. A preview
-   that goes off screen is dropped rather than remembered, so returning to the
-   tab doesn't restart a capture on its own. Cancelling a preview is explicit
-   — a multipart stream does not stop just because its `<img>` was removed —
-   so don't render preview images without the `CameraPreview` hook.
+7. **Only what is on screen is watched.** Switching tab, choosing another
+   camera or pausing stops that stream. Opening the dashboard doesn't start a
+   capture: a camera that is running but idle offers a *Start capturing*
+   button, one that is already capturing previews straight away, and the
+   viewer's own start or pause outranks both. A stream that ends is watched
+   again in a fresh session.
+8. **The seam is `config :bb_liveview, :camera, MyImplementation`**, a module
+   implementing `BB.LiveView.Camera`. The default reaches `bb_camera` and
+   `bb_camera_webrtc`; the tests use a double.
 
 ## Anti-patterns
 
@@ -147,8 +149,8 @@ and previews it.
   `Plug.Static` for `/__bb_assets__` belongs in the endpoint ahead of
   `Plug.Session`, or the CSRF check 403s the script.
 - **Don't push frames over LiveView.** Don't `push_event/3` image data, don't
-  base64 a frame into an assign, and don't publish frames on PubSub. The
-  `<img>`-plus-MJPEG route exists so bulk media never touches the socket.
+  base64 a frame into an assign, and don't publish frames on PubSub. Previews
+  play over WebRTC so bulk media never touches the socket.
 - **Don't mount against a robot that isn't started.** The module must export
   `robot/0` *and* have its supervision tree running; otherwise the page renders
   but shows no live state and controls do nothing.

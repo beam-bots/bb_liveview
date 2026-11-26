@@ -26,6 +26,7 @@ Interactive LiveView dashboard for [Beam Bots](https://github.com/beam-bots/bb) 
 - **Event Stream** - Monitor PubSub messages with filtering and pause/resume
 - **Command Execution** - Dynamic forms for robot commands based on DSL definitions
 - **Parameter Editor** - View and modify runtime parameters with type-specific controls
+- **Cameras** - Discovers the robot's cameras and previews them over WebRTC, with the optional [`bb_camera_webrtc`](https://hex.pm/packages/bb_camera_webrtc)
 
 ## Installation
 
@@ -134,6 +135,8 @@ The `bb_dashboard/2` macro accepts the following options:
 | Option | Required | Description |
 |--------|----------|-------------|
 | `:robot` | Yes | The robot module (must `use BB`) |
+| `:drive` | No | Adds the Drive widget; see [Drive](#drive) |
+| `:ice_servers` | No | STUN/TURN servers for camera previews; see [Cameras](#cameras) |
 
 ## Dashboard Components
 
@@ -179,6 +182,24 @@ bb_dashboard "/robot",
 - The same contract as bb_tui's drive extension, so one pair of functions serves both
 
 Ticks stop arriving if the browser goes away, so `publish` should keep the robot moving only briefly after each one. See `BB.LiveView.Drive`.
+
+### Cameras
+
+When the robot declares cameras (with [`bb_camera`](https://hex.pm/packages/bb_camera)),
+the visual area gains a Cameras tab that previews them over WebRTC. Previews
+need the optional `bb_camera_webrtc` package:
+
+```elixir
+{:bb_camera_webrtc, "~> 0.1"},
+# Membrane's `ratio` pins `decimal` lower; only your own mix.exs can override it.
+{:decimal, "~> 3.0", override: true}
+```
+
+- Only the camera on screen is streamed, and an idle camera isn't started until you ask
+- Video travels over WebRTC; the LiveView socket carries only the signalling
+- No STUN or TURN servers by default, so the browser must reach the robot directly; pass `:ice_servers` for a browser behind NAT
+
+See the [Preview Cameras](https://hexdocs.pm/bb_liveview/preview-cameras.html) guide.
 
 ### Event Stream
 

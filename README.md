@@ -35,7 +35,7 @@ Add `bb_liveview` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:bb_liveview, "~> 0.4.0"}
+    {:bb_liveview, "~> 0.5.0"}
   ]
 end
 ```

@@ -11,6 +11,13 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v0.5.0](https://github.com/beam-bots/bb_liveview/compare/v0.4.0...v0.5.0) (2026-11-26)
+### Breaking Changes:
+
+* preview cameras over WebRTC, replacing the MJPEG route (#203) by James Harton
+
+
+
 ## [v0.4.0](https://github.com/beam-bots/bb_liveview/compare/v0.3.4...v0.4.0) (2026-11-19)
 
 

@@ -46,8 +46,10 @@ defmodule BB.LiveView.Components.DriveTest do
     view = drive_view(conn)
     assert has_element?(view, "#drive[data-in-control=false]")
 
+    # `publish` is called inside the event handler, and `render_hook/3` waits
+    # for it, so a tick would already be here.
     hook(view, "drive", %{"throttle" => 1, "turn" => 0})
-    refute_receive {:tick, _, _, _}
+    refute_received {:tick, _, _, _}
   end
 
   test "ticks call publish with the scaled, clamped command", %{conn: conn} do
@@ -79,7 +81,7 @@ defmodule BB.LiveView.Components.DriveTest do
     view = conn |> drive_view() |> take_control()
 
     hook(view, "drive", %{"throttle" => "fast", "turn" => 0})
-    refute_receive {:tick, _, _, _}
+    refute_received {:tick, _, _, _}
   end
 
   test "warns while the robot is disarmed", %{conn: conn} do

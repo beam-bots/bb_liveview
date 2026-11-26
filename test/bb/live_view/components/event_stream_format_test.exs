@@ -15,7 +15,8 @@ defmodule BB.LiveView.Components.EventStreamFormatTest do
   alias BB.Message
   alias BB.Message.Sensor.Image
 
-  @flush_interval_ms 10
+  # Longer than any test, so nothing flushes until a test says so.
+  @flush_interval_ms :timer.hours(1)
 
   defmodule Note do
     @moduledoc false
@@ -28,9 +29,13 @@ defmodule BB.LiveView.Components.EventStreamFormatTest do
     )
   end
 
+  # The host hands both messages to the component with `send_update` to itself,
+  # which queues behind the render's own sync with the view, so the second
+  # render is the first to see the flushed message.
   defp show(view, path, message) do
     send(view.pid, {:inject, path, message})
-    Process.sleep(@flush_interval_ms * 3)
+    send(view.pid, :flush)
+    render(view)
     render(view)
   end
 

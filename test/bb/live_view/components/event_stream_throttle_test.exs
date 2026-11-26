@@ -56,6 +56,10 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
 
   defp flush_now(view), do: send(view.pid, :flush)
 
+  # What the component's own debounce timer delivers when a window closes.
+  defp close_window(view, path, payload_module),
+    do: send(view.pid, {:trailing, {path, payload_module}})
+
   # The host hands each message to the component with a `send_update` to
   # itself, which queues behind the render's own sync with the view. A second
   # render is the first to see the component updated.
@@ -146,6 +150,8 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
       assert render_after_update(view) =~ "2 messages"
     end
 
+    # The window is an hour long, so every repeat here is held back for certain,
+    # and the test closes it by hand rather than waiting for it.
     test "shows the newest repeat once the window closes", %{conn: conn} do
       {:ok, view, _html} = mount_host(conn)
 
@@ -153,13 +159,13 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
         inject(view, [:sensor, :imu], joint_state_message(position))
       end
 
-      wait_for_flush()
-      assert render(view) =~ "1 messages"
+      flush_now(view)
+      assert render_after_update(view) =~ "1 messages"
 
-      Process.sleep(@debounce_window_ms)
-      wait_for_flush()
+      close_window(view, [:sensor, :imu], JointState)
+      flush_now(view)
 
-      html = render(view)
+      html = render_after_update(view)
       assert html =~ "2 messages"
       assert html =~ "[0.100]"
       assert html =~ "[0.300]"
@@ -171,14 +177,15 @@ defmodule BB.LiveView.Components.EventStreamThrottleTest do
 
       inject(view, [:sensor, :imu], joint_state_message(0.1))
       inject(view, [:sensor, :imu], joint_state_message(0.2))
-      wait_for_flush()
+      flush_now(view)
+      render_after_update(view)
 
       view |> element("button", "Pause") |> render_click()
 
-      Process.sleep(@debounce_window_ms)
-      wait_for_flush()
+      close_window(view, [:sensor, :imu], JointState)
+      flush_now(view)
 
-      html = render(view)
+      html = render_after_update(view)
       assert html =~ "1 messages"
       refute html =~ "[0.200]"
     end

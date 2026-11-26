@@ -11,7 +11,9 @@ defmodule BB.LiveView.EventStreamHostLive do
   process; the LiveView forwards them to the component as a `:new_message`
   event, matching what `DashboardLive` does at runtime. Sending `:flush`
   forwards a `:flush` event, the same one the component schedules for itself,
-  so a test can flush without waiting for the interval.
+  so a test can flush without waiting for the interval. Sending
+  `{:trailing, key}` likewise closes a debounce window by hand, delivering the
+  repeat the component held back for that key.
   """
 
   use Phoenix.LiveView
@@ -39,6 +41,11 @@ defmodule BB.LiveView.EventStreamHostLive do
 
   def handle_info(:flush, socket) do
     send_update(EventStream, id: "event_stream", event: :flush)
+    {:noreply, socket}
+  end
+
+  def handle_info({:trailing, key}, socket) do
+    send_update(EventStream, id: "event_stream", event: {:trailing, key})
     {:noreply, socket}
   end
 

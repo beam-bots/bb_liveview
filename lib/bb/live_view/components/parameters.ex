@@ -180,6 +180,11 @@ defmodule BB.LiveView.Components.Parameters do
     is_remote = tab.type == :remote
     path_str = format_path_string(param[:path] || param[:id])
 
+    # These templates are rendered with the component's assigns, whose
+    # `__changed__` only ever names the component's own assigns. A key added
+    # with `Map.put` is missing from it, so LiveView treats `@value` and the
+    # rest as unchanged and leaves them out of the diff: the inputs would keep
+    # the value they were first rendered with. `assign/3` marks them changed.
     assigns =
       assigns
       |> assign(:param, param)

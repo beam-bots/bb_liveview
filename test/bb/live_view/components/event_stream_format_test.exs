@@ -1,0 +1,147 @@
+# SPDX-FileCopyrightText: 2026 Lars Wikman
+#
+# SPDX-License-Identifier: Apache-2.0
+
+defmodule BB.LiveView.Components.EventStreamFormatTest do
+  @moduledoc """
+  Tests for how `EventStream` renders binary payload fields.
+  """
+
+  use BB.LiveView.ConnCase
+
+  import Phoenix.LiveViewTest
+
+  alias BB.LiveView.EventStreamHostLive
+  alias BB.Message
+  alias BB.Message.Sensor.Image
+
+  # Longer than any test, so nothing flushes until a test says so.
+  @flush_interval_ms :timer.hours(1)
+
+  defmodule Note do
+    @moduledoc false
+    defstruct [:text]
+  end
+
+  defp mount_host(conn) do
+    live_isolated(conn, EventStreamHostLive,
+      session: %{"flush_interval_ms" => @flush_interval_ms, "debounce_window_ms" => 0}
+    )
+  end
+
+  # The host hands both messages to the component with `send_update` to itself,
+  # which queues behind the render's own sync with the view, so the second
+  # render is the first to see the flushed message.
+  defp show(view, path, message) do
+    send(view.pid, {:inject, path, message})
+    send(view.pid, :flush)
+    render(view)
+    render(view)
+  end
+
+  defp note(text),
+    do: %Message{wall_time: System.os_time(:nanosecond), payload: %Note{text: text}}
+
+  defp field_value(view, name) do
+    view
+    |> render()
+    |> Floki.parse_document!()
+    |> Floki.find(".bb-event-field")
+    |> Enum.find_value(fn field ->
+      if Floki.find(field, ".bb-event-field-name") |> Floki.text() == "#{name}:" do
+        field |> Floki.find(".bb-event-field-value") |> Floki.text()
+      end
+    end)
+  end
+
+  test "summarises raw image data by size instead of rendering it", %{conn: conn} do
+    {:ok, view, _html} = mount_host(conn)
+
+    {:ok, message} =
+      Image.new(:camera,
+        width: 160,
+        height: 120,
+        encoding: :rgb8,
+        step: 480,
+        data: :crypto.strong_rand_bytes(57_600)
+      )
+
+    html = show(view, [:sensor, :camera], message)
+
+    assert String.valid?(html)
+    assert field_value(view, "data") == "<<57600 bytes>>"
+    assert field_value(view, "encoding") == "rgb8"
+  end
+
+  test "summarises short non-printable binaries", %{conn: conn} do
+    {:ok, view, _html} = mount_host(conn)
+
+    show(view, [:sensor, :thing], note(<<0, 255, 1>>))
+
+    assert field_value(view, "text") == "<<3 bytes>>"
+  end
+
+  test "renders short printable strings verbatim", %{conn: conn} do
+    {:ok, view, _html} = mount_host(conn)
+
+    show(view, [:sensor, :thing], note("hello, world"))
+
+    assert field_value(view, "text") == "hello, world"
+  end
+
+  test "truncates long printable strings", %{conn: conn} do
+    {:ok, view, _html} = mount_host(conn)
+
+    show(view, [:sensor, :thing], note(String.duplicate("a", 1000)))
+
+    assert field_value(view, "text") == String.duplicate("a", 200) <> "…"
+  end
+
+  test "truncation doesn't split a multi-byte character", %{conn: conn} do
+    {:ok, view, _html} = mount_host(conn)
+
+    # The 200-byte cut lands in the middle of an "é".
+    html = show(view, [:sensor, :thing], note("a" <> String.duplicate("é", 150)))
+
+    assert String.valid?(html)
+    assert field_value(view, "text") == "a" <> String.duplicate("é", 99) <> "…"
+  end
+
+  describe "parameter changes" do
+    defp changed(old_value, new_value) do
+      %Message{
+        wall_time: System.os_time(:nanosecond),
+        payload: %BB.Parameter.Changed{
+          path: [:limits, :max_throttle],
+          old_value: old_value,
+          new_value: new_value,
+          source: :local
+        }
+      }
+    end
+
+    defp summary(view) do
+      view
+      |> render()
+      |> Floki.parse_document!()
+      |> Floki.find(".bb-event-summary")
+      |> Floki.text()
+    end
+
+    test "summarise the change from the old value to the new", %{conn: conn} do
+      {:ok, view, _html} = mount_host(conn)
+
+      show(view, [:param, :limits, :max_throttle], changed(0.3, 0.45))
+
+      assert summary(view) == "0.300 → 0.450"
+    end
+
+    test "summarise a first value as just the value", %{conn: conn} do
+      {:ok, view, _html} = mount_host(conn)
+
+      show(view, [:param, :limits, :max_throttle], changed(nil, 0.3))
+
+      assert summary(view) == "0.300"
+    end
+  end
+end

@@ -20,6 +20,7 @@ defmodule BB.LiveView.Components.EventStream do
   @max_messages 100
   @default_flush_interval_ms 500
   @default_debounce_window_ms 1000
+  @max_string_bytes 200
 
   @impl Phoenix.LiveComponent
   def mount(socket) do
@@ -31,6 +32,7 @@ defmodule BB.LiveView.Components.EventStream do
        message_count: 0,
        pending: [],
        last_seen: %{},
+       trailing: %{},
        flush_scheduled: false,
        flush_interval_ms: @default_flush_interval_ms,
        debounce_window_ms: @default_debounce_window_ms
@@ -44,20 +46,28 @@ defmodule BB.LiveView.Components.EventStream do
         {:ok, socket}
 
       debounced?(path, message, socket.assigns.last_seen, socket.assigns.debounce_window_ms) ->
-        {:ok, socket}
+        {:ok, hold_trailing(socket, path, message)}
 
       true ->
-        key = debounce_key(path, message)
-        now = System.monotonic_time(:millisecond)
-        msg_data = format_message(path, message)
+        {:ok, accept_message(socket, path, message)}
+    end
+  end
 
-        socket =
-          socket
-          |> assign(:pending, [msg_data | socket.assigns.pending])
-          |> assign(:last_seen, Map.put(socket.assigns.last_seen, key, now))
-          |> schedule_flush()
-
+  # The newest message held back by the debounce window for a path + payload
+  # type, shown once the window closes.
+  def update(%{event: {:trailing, key}}, socket) do
+    case Map.pop(socket.assigns.trailing, key) do
+      {nil, _trailing} ->
         {:ok, socket}
+
+      {{path, message}, trailing} ->
+        socket = assign(socket, :trailing, trailing)
+
+        if socket.assigns.paused do
+          {:ok, socket}
+        else
+          {:ok, accept_message(socket, path, message)}
+        end
     end
   end
 
@@ -159,6 +169,39 @@ defmodule BB.LiveView.Components.EventStream do
      |> assign(message_count: 0, pending: [])}
   end
 
+  defp accept_message(socket, path, message) do
+    key = debounce_key(path, message)
+    now = System.monotonic_time(:millisecond)
+    msg_data = format_message(path, message)
+
+    socket
+    |> assign(:pending, [msg_data | socket.assigns.pending])
+    |> assign(:last_seen, Map.put(socket.assigns.last_seen, key, now))
+    |> schedule_flush()
+  end
+
+  # Dropping every repeat inside the window would leave the stream showing the
+  # first of a burst rather than where it ended (a slider dragged across a
+  # parameter's range would show only its first step). The newest repeat is
+  # kept instead and shown when the window closes, so a continuous stream still
+  # shows about one message per window and a burst ends on its last value.
+  defp hold_trailing(socket, path, message) do
+    key = debounce_key(path, message)
+    trailing = socket.assigns.trailing
+
+    unless Map.has_key?(trailing, key) do
+      elapsed = System.monotonic_time(:millisecond) - Map.fetch!(socket.assigns.last_seen, key)
+
+      Phoenix.LiveView.send_update_after(
+        __MODULE__,
+        [id: socket.assigns.id, event: {:trailing, key}],
+        max(socket.assigns.debounce_window_ms - elapsed, 0)
+      )
+    end
+
+    assign(socket, :trailing, Map.put(trailing, key, {path, message}))
+  end
+
   defp debounce_key(path, message), do: {path, message.payload.__struct__}
 
   defp debounced?(path, message, last_seen, window_ms) do
@@ -226,6 +269,12 @@ defmodule BB.LiveView.Components.EventStream do
       %BB.StateMachine.Transition{from: from, to: to} ->
         "#{from} → #{to}"
 
+      %BB.Parameter.Changed{old_value: nil, new_value: new} ->
+        format_value(new)
+
+      %BB.Parameter.Changed{old_value: old, new_value: new} ->
+        "#{format_value(old)} → #{format_value(new)}"
+
       _ ->
         nil
     end
@@ -263,8 +312,32 @@ defmodule BB.LiveView.Components.EventStream do
   defp format_value(value) when is_float(value), do: format_number(value)
   defp format_value(value) when is_integer(value), do: Integer.to_string(value)
   defp format_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp format_value(value) when is_binary(value), do: value
+  # Payloads can carry raw bytes (an image's pixel data, say). Rendered as-is
+  # they bloat the diff, and invalid UTF-8 makes the socket's JSON encoding
+  # raise, so only short printable text is shown verbatim.
+  defp format_value(value) when is_binary(value) and byte_size(value) <= @max_string_bytes do
+    if String.printable?(value), do: value, else: byte_summary(value)
+  end
+
+  defp format_value(value) when is_binary(value) do
+    prefix = value |> binary_part(0, @max_string_bytes) |> valid_utf8_prefix()
+
+    if String.printable?(prefix), do: prefix <> "…", else: byte_summary(value)
+  end
+
   defp format_value(value), do: inspect(value, limit: 10)
+
+  defp byte_summary(value), do: "<<#{byte_size(value)} bytes>>"
+
+  # Cutting at a byte offset can split a multi-byte character; drop the
+  # partial one rather than calling the whole string binary.
+  defp valid_utf8_prefix(bytes) do
+    case :unicode.characters_to_binary(bytes) do
+      {:incomplete, valid, _rest} -> valid
+      valid when is_binary(valid) -> valid
+      {:error, _valid, _rest} -> bytes
+    end
+  end
 
   defp format_number(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 3)
   defp format_number(n), do: Integer.to_string(n)

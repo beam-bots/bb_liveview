@@ -6,11 +6,13 @@ import { LiveSocket } from "phoenix_live_view";
 
 import { AutoScroll } from "./hooks/auto_scroll";
 import { CameraPreview } from "./hooks/camera_preview";
+import { DrivePad } from "./hooks/drive_pad";
 import { Visualisation } from "./hooks/visualisation";
 
 const Hooks = {
   AutoScroll,
   CameraPreview,
+  DrivePad,
   Visualisation,
 };
 

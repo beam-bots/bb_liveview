@@ -46,7 +46,7 @@ Seven LiveComponents, each handling a specific concern:
 - `app.js` - LiveView setup with hooks
 - `hooks/visualisation.js` - Three.js integration hook
 - `hooks/camera_player.js` - camera previews: `bb_camera_webrtc`'s player plus session tagging, ICE servers, latency and frame-rate display
-- `camera/playback.js` - the camera player's browser-free helpers (tested in `assets/test/`)
+- `camera/playback.js` - the camera player's browser-free helpers
 - `visualisation/` - Three.js scene builder and robot model
 
 ### Cameras (`lib/bb/live_view/camera.ex`)

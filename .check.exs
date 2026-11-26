@@ -7,6 +7,7 @@
     {:credo, "mix credo --strict"},
     {:hex_audit, "mix hex.audit"},
     {:mix_audit, false},
+    {:npm_test, false},
     {:usage_rules, false},
     {:reuse, command: ["pipx", "run", "--spec", "reuse[charset-normalizer]", "reuse", "lint", "-q"]}
   ]

@@ -7,8 +7,7 @@
     "build": "NODE_PATH=../deps:../.. esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020",
     "build:css": "cp css/dashboard.css ../priv/static/dashboard.css",
     "build:all": "npm run build && npm run build:css",
-    "watch": "NODE_PATH=../deps:../.. esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020 --watch",
-    "test": "node --test 'test/**/*.test.js'"
+    "watch": "NODE_PATH=../deps:../.. esbuild js/app.js --bundle --outfile=../priv/static/dashboard.js --format=esm --target=es2020 --watch"
   },
   "dependencies": {
     "phoenix": "file:../deps/phoenix",

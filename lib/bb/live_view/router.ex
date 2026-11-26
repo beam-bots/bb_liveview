@@ -58,6 +58,10 @@ defmodule BB.LiveView.Router do
       end
   """
 
+  # Expanded where the macro is defined, not where it's used, so callers
+  # needn't alias anything.
+  alias BB.LiveView.Drive
+
   @doc """
   Defines routes for mounting the BB Dashboard at the given path.
 
@@ -70,7 +74,7 @@ defmodule BB.LiveView.Router do
 
       drive =
         case Keyword.fetch(opts, :drive) do
-          {:ok, drive_opts} -> BB.LiveView.Drive.new!(drive_opts)
+          {:ok, drive_opts} -> Drive.new!(drive_opts)
           :error -> nil
         end
 

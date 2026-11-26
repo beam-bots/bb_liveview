@@ -39,30 +39,48 @@ Seven LiveComponents, each handling a specific concern:
 | EventStream | `event_stream.ex` | PubSub message monitor |
 | Command | `command.ex` | Command execution forms |
 | Parameters | `parameters.ex` | Runtime parameter editor |
-| Cameras | `cameras.ex` | Camera discovery and MJPEG previews |
+| Cameras | `cameras.ex` | Camera discovery and WebRTC previews |
 
 ### JavaScript (`assets/js/`)
 
 - `app.js` - LiveView setup with hooks
 - `hooks/visualisation.js` - Three.js integration hook
+- `hooks/camera_player.js` - camera previews: `bb_camera_webrtc`'s player plus session tagging, ICE servers, latency and frame-rate display
+- `camera/playback.js` - the camera player's browser-free helpers
 - `visualisation/` - Three.js scene builder and robot model
 
 ### Cameras (`lib/bb/live_view/camera.ex`)
 
 `BB.LiveView.Camera` is the whole camera surface: the behaviour the dashboard
-consumes, the lookups built on it, and the seam
-(`config :bb_liveview, :camera`) that decides who implements it.
-`BB.LiveView.Camera.BBCamera` reaches the real `bb_camera` through `apply/3`
-behind `Code.ensure_loaded?/1`, which is what keeps that package optional.
+consumes (`available?/0`, `discover/1`, `webrtc_available?/0`, `watch/3`,
+`signal/2`, `unwatch/1`, `stream_message?/1`, `stream_event/2`), the
+functions built on it, and the seam (`config :bb_liveview, :camera`) that
+decides who implements it. `BB.LiveView.Camera.BBCamera` reaches the real
+`bb_camera` and `bb_camera_webrtc` through `Module.concat/1` behind
+`Code.ensure_loaded?/1`, which is what keeps both packages optional.
 
-Frames never touch PubSub or the LiveView socket. `BB.LiveView.Plugs.CameraStream`
-serves one camera to one browser as MJPEG, mounted by `bb_dashboard/2` inside
-the dashboard's own scope so the host's pipeline guards it. See
-`documentation/how-to/preview-cameras.md`.
+Previews play over WebRTC. Frames never touch PubSub or the LiveView socket;
+the socket carries only signalling. The dashboard's LiveView process calls
+`BB.Camera.WebRTC.watch/4` and `unwatch/3` itself, and is the browser's peer
+on each stream's signalling channel (started with `Signaling.start/0`,
+unlinked, never `new/0`). The stream's messages — Membrane's signalling, its
+`:ended`, its `:DOWN` — arrive at the LiveView, which never matches on them:
+`Camera.stream_message?/1` says whether to forward one to the Cameras
+component, and `Camera.stream_event/2` tells the component what it means for
+a watch (`{:signal, map}`, `:ended` or `nil`).
 
-`BB.LiveView.SyntheticCamera` (in `test/support`, so also available in `:dev`)
-implements the same seam with no hardware: `clock: :external` for deterministic
-tests, `clock: {:rate, hz}` for the dev server.
+The Cameras component owns the watches (it runs in the dashboard's process);
+`DashboardLive` forwards the stream messages to it. Each watch is a numbered
+session that is part of the `<video>` id, so a re-watch replaces the element
+and the `CameraPlayer` hook with it. A stream that ends after signalling is
+re-watched at once; one that ends before is retried with `send_update_after`.
+See `documentation/how-to/preview-cameras.md`.
+
+`BB.LiveView.SyntheticCamera` (in `test/support`) implements the same seam
+with no camera and no WebRTC: it reports each watch to the test, and the test
+plays the camera's half of the signalling (`to_browser/2`, `end_stream/1`).
+`BB.LiveView.WebRTCRobot` is a real robot with `BB.Camera.Synthetic`, for
+testing `BBCamera` against the real packages.
 
 ### Static Assets (`priv/static/`)
 
@@ -179,10 +197,11 @@ Test support files in `test/support/`:
 The `dev/` directory contains a standalone development server:
 
 - `dev/dev/application.ex` - Starts BB.Supervisor with test robot
-- `dev/dev/test_robot.ex` - WidowX-200 style simulated robot
+- `dev/dev/test_robot.ex` - WidowX-200 style simulated robot, with a `BB.Camera.Synthetic` camera
 - `dev/dev_web/` - Phoenix endpoint and router
 
-Run with `mix phx.server` (uses `Dev.Application` in dev environment).
+Run with `BB_VERSION=local mix phx.server` (uses `Dev.Application` in dev environment).
+It stays bound to 127.0.0.1.
 
 ## Asset Pipeline
 
@@ -196,12 +215,18 @@ npm run build:css    # CSS → priv/static/dashboard.css
 
 Three.js is bundled into the main JS file (~1.1MB unminified).
 
+The camera player is imported as `bb_camera_webrtc/assets/player.js`, a bare
+specifier resolved through `NODE_PATH=../deps:../..` in the npm scripts:
+`deps/` holds it when it comes from Hex, and under `BB_VERSION=local` it is the
+sibling checkout, which Mix doesn't copy into `deps/`.
+
 ## Dependencies
 
 Key dependencies:
 - `phoenix_live_view` - LiveView framework
 - `bb` - Beam Bots core (robot DSL, runtime, PubSub)
 - `jason` - JSON encoding for JS communication
+- `bb_camera`, `bb_camera_webrtc` (optional) - cameras and their WebRTC previews
 - `three` (npm) - 3D visualisation
 
 ## File Locations
@@ -215,7 +240,8 @@ Key dependencies:
 | Layouts | `lib/bb/live_view/layouts.ex` |
 | Static plug | `lib/bb/live_view/plugs/static.ex` |
 | Camera contract | `lib/bb/live_view/camera.ex` |
-| Camera MJPEG route | `lib/bb/live_view/plugs/camera_stream.ex` |
+| Default camera implementation | `lib/bb/live_view/camera/bb_camera.ex` |
+| Camera player hook | `assets/js/hooks/camera_player.js` |
 | Synthetic camera | `test/support/synthetic_camera.ex` |
 | JS hooks | `assets/js/hooks/*.js` |
 | Three.js code | `assets/js/visualisation/*.js` |

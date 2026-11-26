@@ -25,24 +25,22 @@ defmodule BB.LiveView.Router do
   ## Options
 
     * `:robot` - Required. The robot module to control. Must define a `robot/0` function.
-    * `:camera_stream` - Optional. Keyword options for `BB.LiveView.Plugs.CameraStream`,
-      which serves camera previews from this same scope:
-      `:first_frame_timeout` (how long a camera has to produce its first frame
-      before the request is refused with a 503, default 5000ms) and
-      `:frame_timeout` (how long a stalled camera is given before the response
-      is ended, default 10000ms).
     * `:drive` - Optional. Adds a Drive widget for hold-to-drive with the
       keyboard or an on-screen pad. See `BB.LiveView.Drive`.
+    * `:ice_servers` - Optional. STUN and TURN servers for camera previews,
+      given to both the robot's end of each WebRTC connection and the
+      browser's. None by default, which is right for a browser on the robot's
+      own network. A list of maps such as
+      `%{urls: "turn:turn.example.com:3478", username: "robot", credential: "secret"}`,
+      or a `{module, function, args}` returning one, called each time the
+      dashboard mounts — use that for credentials read at runtime.
 
   ## Cameras
 
-  The macro also mounts `BB.LiveView.Plugs.CameraStream` at
-  `<path>/__bb_camera__/:camera/mjpeg`, inside the same scope, so camera
-  previews pass through whatever pipeline guards the dashboard. The dashboard
-  builds those URLs from the path it is mounted at, so nothing needs
-  configuring — but note that the stream is a plain HTTP response: it is as
-  protected as the pipeline makes it, and no more. A preview URL is not a
-  credential.
+  Camera previews play over WebRTC, with signalling carried by the dashboard's
+  own LiveView socket — so they pass through whatever pipeline guards the
+  dashboard and there is no extra route to protect. They need the optional
+  `bb_camera_webrtc` package; see the "Preview cameras" guide.
 
   ## Authentication
 
@@ -70,7 +68,7 @@ defmodule BB.LiveView.Router do
   defmacro bb_dashboard(path, opts) do
     quote bind_quoted: binding() do
       robot = Keyword.fetch!(opts, :robot)
-      camera_stream = Keyword.get(opts, :camera_stream, [])
+      ice_servers = Keyword.get(opts, :ice_servers, [])
 
       drive =
         case Keyword.fetch(opts, :drive) do
@@ -90,20 +88,11 @@ defmodule BB.LiveView.Router do
           private: %{bb_dashboard_asset: true}
         )
 
-        # Inside the same scope, so the host's pipeline guards the camera
-        # stream exactly as it guards the dashboard.
-        get(
-          "/__bb_camera__/:camera/mjpeg",
-          BB.LiveView.Plugs.CameraStream,
-          [],
-          as: :bb_dashboard_camera,
-          private: %{bb_camera_robot: robot, bb_camera_stream: camera_stream}
-        )
-
         live_session :"bb_dashboard_#{robot}",
           on_mount: [
             {BB.LiveView.Hooks.AssignRobot, robot},
-            {BB.LiveView.Hooks.AssignDrive, drive}
+            {BB.LiveView.Hooks.AssignDrive, drive},
+            {BB.LiveView.Hooks.AssignIceServers, ice_servers}
           ],
           root_layout: {BB.LiveView.Layouts, :root} do
           live("/", BB.LiveView.DashboardLive, :index)

@@ -6,9 +6,40 @@ SPDX-License-Identifier: Apache-2.0
 
 # Preview cameras on the dashboard
 
-The dashboard finds a robot's cameras by itself and previews them. There is
-nothing to wire up: mount `bb_dashboard` as usual and any camera the robot
-declares appears in the Cameras widget.
+The dashboard finds a robot's cameras by itself and previews them over
+WebRTC. Mount `bb_dashboard` as usual, install two packages, and any camera
+the robot declares appears in the Cameras tab.
+
+## Requirements
+
+- **`bb_camera`**, and a camera driver delivering raw `:I420` frames — which is
+  what every `bb_camera` driver produces.
+- **`bb_camera_webrtc`**, which encodes each camera once (H.264, tuned for
+  latency) and streams it to every browser watching.
+- **An override for `decimal`.** Membrane's `ratio` still declares
+  `decimal ~> 1.6 or ~> 2.0`, below what `bb` wants and below the releases that
+  fix `decimal`'s DoS advisories. `ratio` treats `decimal` as optional, so the
+  override is safe, and Mix only honours it from your own `mix.exs`.
+
+```elixir
+def deps do
+  [
+    {:bb_liveview, "~> 0.4"},
+    {:bb_camera, "~> 0.2"},
+    {:bb_camera_webrtc, "~> 0.1"},
+    {:decimal, "~> 3.0", override: true}
+  ]
+end
+```
+
+Both camera packages are optional dependencies of `bb_liveview`. Without
+`bb_camera` there are no cameras to find, and the dashboard is exactly as it
+was. With `bb_camera` but not `bb_camera_webrtc`, cameras are listed and each
+tile says what to add to preview it.
+
+The encoder runs on the CPU. At 640×480 and 30 fps libx264 takes about a fifth
+of a laptop core; on a Raspberry Pi 4 or 5 expect most of one. It runs once per
+camera, however many browsers are watching.
 
 ## What a camera is
 
@@ -23,78 +54,65 @@ topology do
 end
 ```
 
-`BB.Camera` (from the `bb_camera` package) is what makes it a camera rather
-than just a sensor. `bb_liveview` does not depend on `bb_camera`: with the
-package absent there are no cameras to find, the widget says so, and nothing
-else about the dashboard changes.
+## How video reaches the browser
 
-## How frames reach the browser
+**Not over the LiveView socket.** Video travels from the robot to the browser
+over WebRTC. The socket carries only the signalling that sets each connection
+up — an SDP offer and answer, and ICE candidates — and PubSub carries only
+lifecycle events (capture started, capture ended), which the dashboard uses to
+keep the camera list honest.
 
-**Not over the LiveView socket.** Video never travels through PubSub or through
-LiveView events — the only camera traffic on PubSub is lifecycle events
-(capture started, capture ended, settings applied or rejected), which the
-dashboard uses to keep the camera list honest.
+The dashboard's LiveView process watches each camera on screen with
+`BB.LiveView.Camera.watch/3`, which calls `BB.Camera.WebRTC.watch/4`, and
+stops watching one that goes off screen with `BB.Camera.WebRTC.unwatch/3`,
+leaving the others playing. The first viewer of a camera starts its pipeline and the last to leave stops it,
+which releases the camera; everyone in between shares one encoder. In the
+browser, the `CameraPlayer` hook — `bb_camera_webrtc`'s player, bundled into
+the dashboard's JavaScript — answers the offer and plays the stream in a
+`<video>`, asking the browser for its smallest jitter buffer and showing the
+connection state and the frame rate it is actually playing.
 
-Each preview is an `<img>` pointing at `BB.LiveView.Plugs.CameraStream`, which
-`bb_dashboard/2` mounts at `<your mount path>/__bb_camera__/:camera/mjpeg`. The
-browser opens an ordinary HTTP connection and gets
-`multipart/x-mixed-replace` — MJPEG. One request is one consumer of the
-camera's single shared capture; the camera starts capturing when the first
-consumer arrives and stops when the last one leaves.
+When a stream ends — the camera stopped or restarted, the browser's connection
+failed — a camera still on screen is watched again straight away, in a new
+session with a new `<video>` element. A camera that can't be streamed at all
+right now is tried again every couple of seconds rather than in a tight loop.
 
-Pausing a preview cancels that request, which drops the consumer. Closing the
-browser tab does the same thing without being asked.
+## Networks
 
-Cancelling is explicit, and has to be. A `multipart/x-mixed-replace` response
-never ends on its own, and removing the `<img>` from the page does not stop
-Chrome or Firefox reading it — the connection stays open, the camera keeps a
-consumer, and the webcam light stays on. The `CameraPreview` hook assigns the
-element a blank data URL before it goes, which is what actually cancels the
-load. It cancels only this viewer's request: another browser watching the same
-camera keeps its own, and whether the capture then stops is the hub's decision,
-taken on its own subscriber count.
+**No STUN or TURN servers are used by default.** The browser has to be able to
+reach the robot directly: the same network, or a VPN such as Tailscale. That
+is the common case for a robot, and it means nothing leaves your network.
 
-## Where the previews live
+A browser behind NAT — a phone on mobile data, say — can't reach the robot
+that way, and needs a TURN server to relay through. Give the dashboard its ICE
+servers with `:ice_servers`; they are used by both ends of every connection:
 
-The dashboard's visual area is one panel with two tabs — **3D view** and
-**Cameras** — and opens on the 3D view. Safety, commands, joint control, the
-event stream and parameters are always on screen; only the expensive half is
-exclusive, because a WebGL context and a set of live video connections are not
-things to run side by side for no reason.
+```elixir
+bb_dashboard "/robot",
+  robot: MyRobot,
+  ice_servers: [
+    %{urls: "stun:stun.example.com:3478"},
+    %{urls: "turn:turn.example.com:3478", username: "robot", credential: "secret"}
+  ]
+```
 
-The Cameras tab shows **one camera at a time**, picked from a selector, with a
-**Compare all** button for a grid when you want to see them together. Anything
-taken off screen — by switching tab, by choosing another camera, by leaving the
-grid — loses its `<img>`, which closes that HTTP connection and drops that
-consumer. It does not stop the capture: other consumers may be watching, and
-that is the camera hub's decision.
+TURN credentials are usually read at runtime, and often expire. A list written
+into the router is compiled into your application, so pass a
+`{module, function, args}` instead — it is called every time the dashboard
+mounts:
 
-A preview you started and then navigated away from does not resume by itself
-when you come back; that would restart a capture you only asked for once.
-Pressing Start again is one click. A camera that is still *capturing* when you
-return shows straight away, as it always does.
+```elixir
+bb_dashboard "/robot", robot: MyRobot, ice_servers: {MyApp.Turn, :ice_servers, []}
+```
 
-## Opening the dashboard doesn't start anything
+The servers are handed to the browser, which needs them too, so anyone who can
+open the dashboard can read them. Prefer short-lived TURN credentials.
 
-Because requesting a preview is what starts the capture, a camera that is
-running but not capturing shows a **Start capturing** button and no picture.
-Nothing is requested until you press it. A dashboard with four cameras on it
-costs nothing to open.
+## Authentication
 
-A camera that is *already* capturing previews immediately — watching it costs a
-connection and the bandwidth, but it doesn't start a capture that wasn't
-running. The same goes for one that starts capturing later for someone else's
-reasons: the picture appears when the robot says so.
-
-Your own choice wins over both. A preview you started shows before the camera
-has reported catching up — it has to, since the request is what makes it
-happen — and one you paused stays hidden even while the camera keeps capturing
-for others. Neither is forgotten when the camera list refreshes.
-
-### Authentication
-
-The camera route is defined **inside the same scope as the dashboard**, so
-whatever pipeline guards the dashboard guards the stream:
+Signalling travels over the dashboard's own LiveView socket, so whatever
+pipeline guards the dashboard guards the previews. There is no extra route to
+protect:
 
 ```elixir
 scope "/admin" do
@@ -103,99 +121,74 @@ scope "/admin" do
 end
 ```
 
-Here `/admin/robot/__bb_camera__/head_camera/mjpeg` goes through
-`:require_admin` exactly as the dashboard does. The reverse is also true: if
-the dashboard is public, the stream is public. **A stream URL is not a
-credential** — it is guessable from the camera's name, and it must not be
-treated as a secret.
+## Where the previews live
 
-### Why MJPEG, and where Membrane isn't
+The dashboard's visual area is one panel with two tabs — **3D view** and
+**Cameras** — and opens on the 3D view. Safety, commands, joint control, the
+event stream and parameters are always on screen; only the expensive half is
+exclusive, because a WebGL context and a set of live video streams are not
+things to run side by side for no reason.
 
-MJPEG is the smallest thing that works: every browser renders it in an `<img>`
-with no JavaScript, and the camera already produces whole JPEG frames. The
-preview path is camera → HTTP response, with **no Membrane pipeline in it** —
-a stream of complete JPEGs gains nothing from one. `bb_camera` ships
-`BB.Camera.Membrane.Source` for the transports that will need real muxing
-(fragmented MP4, WebRTC); those belong on top of it, not on top of this.
+The Cameras tab shows **one camera at a time**, picked from a selector, with a
+**Compare all** button for a grid when you want to see them together. Anything
+taken off screen — by switching tab, by choosing another camera, by leaving
+the grid — stops being watched. That doesn't necessarily stop the camera:
+another browser may be watching it.
 
-### Backpressure
+A preview you started and then navigated away from does not resume by itself
+when you come back; that would restart a capture you only asked for once.
+Pressing Start again is one click. A camera that is still *capturing* when you
+return shows straight away, as it always does.
 
-The route asks for one frame at a time and only asks for the next once the
-current one has been written, and the camera hub holds exactly one latest
-frame. A browser on a slow link therefore *skips* frames; it never makes the
-camera side accumulate them. (The web server still buffers whatever it has
-accepted for the socket — what's guaranteed is that a stalled reader can't
-grow a queue behind the camera.)
+## Opening the dashboard doesn't start anything
 
-## Options
+Watching a camera is what starts its capture, so a camera that is running but
+not capturing shows a **Start capturing** button and no picture. Nothing is
+watched until you press it. A dashboard with four cameras on it costs nothing
+to open.
 
-```elixir
-bb_dashboard "/robot",
-  robot: MyRobot,
-  camera_stream: [first_frame_timeout: 5_000, frame_timeout: 10_000]
-```
+A camera that is *already* capturing previews immediately — watching it costs
+the bandwidth, but it doesn't start a capture that wasn't running. The same
+goes for one that starts capturing later for someone else's reasons: the
+picture appears when the robot says so.
 
-* `:first_frame_timeout` — how long a camera has to produce its first frame.
-  The response status is decided *before* any bytes are sent, so a camera that
-  is declared but offline, or alive but producing nothing, answers 503 instead
-  of a 200 that hangs.
-* `:frame_timeout` — how long a stalled camera is given mid-stream before the
-  response is ended. A camera that disappears ends the response; it never
-  leaves the request hanging.
+Your own choice wins over both. A preview you started shows before the camera
+has reported catching up — it has to, since watching is what makes it happen —
+and one you paused stays hidden even while the camera keeps capturing for
+others. Neither is forgotten when the camera list refreshes.
 
 ## Try it without a camera
 
-The dev server in this repository runs a synthetic camera — real JPEG frames,
-no hardware — through exactly the production path. From a checkout of
-`bb_liveview` (Debian, Elixir and Erlang per `.tool-versions`):
+The dev server in this repository declares `BB.Camera.Synthetic` — a real
+`bb_camera` driver producing a moving test pattern, no hardware — on its robot,
+and previews it through exactly the production path. From a checkout of the
+Beam Bots workspace, with `bb`, `bb_camera` and `bb_camera_webrtc` beside
+`bb_liveview`:
 
 ```sh
 cd bb_liveview
-mix deps.get
+BB_VERSION=local mix deps.get
 mix assets.setup        # first run only, fetches npm packages
 mix assets.build
-mix phx.server
+BB_VERSION=local mix phx.server
 ```
 
-Then open <http://localhost:4000>. The Cameras widget shows two cameras:
-`head_camera`, previewing at 10 fps, and `gripper_camera`, which is declared
-but not running — the offline state a dashboard should show rather than hiding
-a camera that ought to be there.
+Then open <http://localhost:4000>, choose the Cameras tab and press **Start
+capturing** on `head_camera`.
 
-To see the raw stream:
-
-```sh
-curl -N http://localhost:4000/__bb_camera__/head_camera/mjpeg | head -c 200 | xxd | head
-```
-
-The synthetic implementation is `BB.LiveView.SyntheticCamera`, selected in
-`config/dev.exs` with:
-
-```elixir
-config :bb_liveview, :camera, BB.LiveView.SyntheticCamera
-```
-
-That key is the seam the whole camera path hangs off. Leave it unset in a real
-application and it resolves to `bb_camera`.
-
-### With `bb_camera` installed
-
-Once the package is a dependency of your own application, the synthetic camera
-is a real driver and belongs in the robot rather than in config:
+The synthetic camera belongs in a robot like any other driver:
 
 ```elixir
 topology do
   link :base_link do
-    sensor :head_camera, {BB.Camera.Synthetic, clock: {:rate, 10}}
+    sensor :head_camera, {BB.Camera.Synthetic, width: 640, height: 480, clock: {:rate, 30}}
   end
 end
 ```
 
-Everything else is identical — the dashboard discovers it, previews it, and
-stops its capture when the last browser goes away. `clock: :external` plus
-`BB.Camera.Synthetic.capture_frame/2` gives a camera that produces a frame
-exactly when a test says so, which is how to test anything downstream of a
-camera without sleeping.
+`clock: :external` plus `BB.Camera.Synthetic.capture_frame/2` gives a camera
+that produces a frame exactly when a test says so, which is how to test
+anything downstream of a camera without sleeping.
 
 ## Use a real USB camera on Debian
 
@@ -205,13 +198,9 @@ First confirm the kernel and your user can see it:
 ```sh
 sudo apt install v4l-utils
 v4l2-ctl --list-devices
-v4l2-ctl --list-formats-ext -d /dev/video0 | grep -A3 MJPG
+v4l2-ctl --list-formats-ext -d /dev/video0
 id -nG | grep -q video || sudo usermod -aG video "$USER"   # log out and back in
 ```
-
-The `MJPG` line matters: the preview carries JPEG, so a camera that only offers
-`YUYV` needs the driver to encode, which costs CPU. Most laptop and USB
-webcams offer MJPG natively.
 
 Then declare it:
 
@@ -223,5 +212,19 @@ topology do
 end
 ```
 
-Start the robot and the dashboard, and the camera appears beside the synthetic
-one with no further configuration.
+Start the robot and the dashboard, and the camera appears with no further
+configuration.
+
+## Supplying cameras another way
+
+Everything the dashboard knows about cameras goes through the
+`BB.LiveView.Camera` behaviour, chosen with:
+
+```elixir
+config :bb_liveview, :camera, MyCameraSource
+```
+
+Leave it unset and it resolves to `BB.LiveView.Camera.BBCamera`, which uses
+`bb_camera` and `bb_camera_webrtc`. This repository's tests point it at
+`BB.LiveView.SyntheticCamera`, a double that plays the camera's half of the
+signalling under the test's control.

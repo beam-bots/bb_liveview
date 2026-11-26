@@ -104,6 +104,20 @@ defmodule BB.LiveView.MixProject do
   defp deps do
     [
       {:bb, bb_dep("~> 0.33")},
+
+      # Cameras and their previews. Both are optional: without `bb_camera` a
+      # robot has no cameras to show, and without `bb_camera_webrtc` the
+      # Cameras tab explains how to enable previews. See
+      # `BB.LiveView.Camera.BBCamera`.
+      optional(:bb_camera, bb_dep("~> 0.2", :bb_camera)),
+      optional(:bb_camera_webrtc, bb_dep("~> 0.1 and >= 0.1.1", :bb_camera_webrtc)),
+
+      # Membrane's `ratio` still declares `decimal ~> 1.6 or ~> 2.0`, which
+      # would hold this tree down on a `decimal` with open DoS advisories.
+      # `ratio` treats `decimal` as optional, so overriding is safe; Mix only
+      # honours it from the top-level project.
+      {:decimal, "~> 3.0", override: true, only: [:dev, :test]},
+
       # Igniter and phx_install are dev/test-only here — the bb_liveview
       # installer ships their declarations to consumer projects via
       # `adds_deps:` in `Mix.Tasks.BbLiveview.Install.info/2`. We carry them
@@ -115,8 +129,13 @@ defmodule BB.LiveView.MixProject do
       {:phx_install, "~> 0.1", only: [:dev, :test], runtime: false},
       {:plug, "~> 1.16"},
 
+      # The dev server's web server, and a dependency of
+      # `membrane_webrtc_plugin` in every environment, so it can't be `only:
+      # :dev`. Optional, so it isn't forced on applications that don't preview
+      # cameras.
+      {:bandit, "~> 1.0", optional: true},
+
       # Build tools (dev only)
-      {:bandit, "~> 1.0", only: :dev},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:phoenix_live_reload, "~> 1.5", only: :dev},
 
@@ -137,12 +156,17 @@ defmodule BB.LiveView.MixProject do
   defp elixirc_paths(:dev), do: ["lib", "test/support", "dev"]
   defp elixirc_paths(_), do: ["lib"]
 
-  defp bb_dep(default) do
+  defp bb_dep(default, package \\ :bb) do
     case System.get_env("BB_VERSION") do
       nil -> default
-      "local" -> [path: "../bb", override: true]
-      "main" -> [git: "https://github.com/beam-bots/bb.git", override: true]
+      "local" -> [path: "../#{package}", override: true]
+      "main" -> [git: "https://github.com/beam-bots/#{package}.git", override: true]
       version -> "~> #{version}"
     end
   end
+
+  defp optional(app, requirement) when is_binary(requirement),
+    do: {app, requirement, optional: true}
+
+  defp optional(app, opts), do: {app, Keyword.put(opts, :optional, true)}
 end

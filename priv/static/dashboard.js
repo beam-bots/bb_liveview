@@ -609,6 +609,15 @@ var arrayBufferToBase64 = (buffer) => {
   }
   return btoa(binary);
 };
+var base64ToArrayBuffer = (base64) => {
+  let binary = atob(base64);
+  let bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+};
+var decodeMessage = (msg) => typeof msg === "string" ? msg : base64ToArrayBuffer(msg.binary);
 var LongPoll = class {
   constructor(endPoint, protocols) {
     if (protocols && protocols.length === 2 && protocols[1].startsWith(AUTH_TOKEN_PREFIX)) {
@@ -681,7 +690,7 @@ var LongPoll = class {
           messages.forEach((msg) => {
             const timer = setTimeout(() => {
               this.messageTimers.delete(timer);
-              this.onmessage({ data: msg });
+              this.onmessage({ data: decodeMessage(msg) });
             }, 0);
             this.messageTimers.add(timer);
           });
@@ -989,6 +998,7 @@ var Socket = class {
     this.ref = 0;
     this.fallbackRef = null;
     this.fallbackErrorRef = null;
+    this.fallbackHealthCheck = null;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.transport = opts.transport || global.WebSocket || LongPoll;
     this.primaryPassedHealthCheck = false;
@@ -1046,6 +1056,7 @@ var Socket = class {
         return [10, 50, 100, 150, 200, 250, 500, 1e3, 2e3][tries - 1] || 5e3;
       }
     };
+    this.reconnectWhenHidden = opts.reconnectWhenHidden || false;
     this.logger = opts.logger || null;
     if (!this.logger && opts.debug) {
       this.logger = (kind, msg, data) => {
@@ -1060,7 +1071,7 @@ var Socket = class {
     this.heartbeatTimer = null;
     this.pendingHeartbeatRef = null;
     this.reconnectTimer = new Timer(() => {
-      if (this.pageHidden) {
+      if (this.pageHidden && !this.reconnectWhenHidden) {
         this.log("Not reconnecting as page is hidden!");
         this.teardown();
         return;
@@ -1359,12 +1370,17 @@ var Socket = class {
       established = true;
       clearTimeout(this.fallbackTimer);
       this.fallbackTimer = setTimeout(fallback, fallbackThreshold);
+    });
+    this.fallbackHealthCheck = () => {
+      if (!isCurrent()) {
+        return;
+      }
       this.ping((rtt) => {
         this.log("transport", "connected to primary after", rtt);
         this.primaryPassedHealthCheck = true;
         clearTimeout(this.fallbackTimer);
       });
-    });
+    };
     this.transportConnect();
     connectClock = this.connectClock;
   }
@@ -1376,6 +1392,7 @@ var Socket = class {
   cancelFallback() {
     clearTimeout(this.fallbackTimer);
     this.off([this.fallbackRef, this.fallbackErrorRef]);
+    this.fallbackHealthCheck = null;
   }
   clearHeartbeats() {
     clearTimeout(this.heartbeatTimer);
@@ -1386,6 +1403,9 @@ var Socket = class {
     if (this.hasLogger()) this.log("transport", `${this.transportName(this.transport)} connected to ${this.endPointURL()}`);
     this.closeWasClean = false;
     this.establishedConnections++;
+    if (this.fallbackHealthCheck) {
+      this.fallbackHealthCheck();
+    }
     this.flushSendBuffer();
     this.reconnectTimer.reset();
     this.resetHeartbeat();
@@ -1941,6 +1961,13 @@ var ensureSameOrigin = (href, kind) => {
     throw new Error(
       `cannot ${kind} to "${href}" because its origin does not match the current origin "${window.location.origin}". Use window.location directly for cross-origin navigation.`
     );
+  }
+};
+var resolveURL = (href) => {
+  try {
+    return new URL(href, document.baseURI).href;
+  } catch {
+    return href;
   }
 };
 var isCid = (cid) => {
@@ -6317,7 +6344,7 @@ var View = class _View {
     this.root.children[this.id] = {};
     this.formsForRecovery = {};
     this.channel = this.liveSocket.channel(`lv:${this.id}`, () => {
-      const url = this.href && this.expandURL(this.href);
+      const url = this.href && resolveURL(this.href);
       return {
         redirect: this.redirect ? url : void 0,
         url: this.redirect ? void 0 : url || void 0,
@@ -7105,7 +7132,7 @@ var View = class _View {
   }
   onLiveRedirect(redir) {
     const { to, kind, flash } = redir;
-    const url = this.expandURL(to);
+    const url = resolveURL(to);
     const e = new CustomEvent("phx:server-navigate", {
       detail: { to, kind, flash }
     });
@@ -7113,11 +7140,8 @@ var View = class _View {
   }
   onLivePatch(redir) {
     const { to, kind } = redir;
-    this.href = this.expandURL(to);
+    this.href = resolveURL(to);
     this.liveSocket.historyPatch(to, kind);
-  }
-  expandURL(to) {
-    return to.startsWith("/") ? `${window.location.protocol}//${window.location.host}${to}` : to;
   }
   onRedirect({
     to,
@@ -8295,6 +8319,7 @@ var View = class _View {
     );
   }
   pushLinkPatch(e, href, targetEl, callback) {
+    href = resolveURL(href);
     const linkRef = this.liveSocket.setPendingLink(href);
     const loading = e.isTrusted && e.type !== "popstate";
     const refGen = targetEl ? () => this.putRef(
@@ -8303,8 +8328,7 @@ var View = class _View {
       "click"
     ) : null;
     const fallback = () => this.liveSocket.redirect(window.location.href, null, null);
-    const url = href.startsWith("/") ? `${location.protocol}//${location.host}${href}` : href;
-    this.pushWithReply(refGen, "live_patch", { url }).then((result) => {
+    this.pushWithReply(refGen, "live_patch", { url: href }).then((result) => {
       if (result.type === "ok") {
         this.liveSocket.requestDOMUpdate(() => {
           if (result.resp.link_redirect) {
@@ -8514,7 +8538,7 @@ var LiveSocket = class {
    * Returns the version of the LiveView client.
    */
   version() {
-    return "1.2.13";
+    return "1.2.15";
   }
   /**
    * Returns true if profiling is enabled. See {@link enableProfiling} and {@link disableProfiling}.
@@ -9385,15 +9409,23 @@ var LiveSocket = class {
         );
       }, 100);
     });
+    let traversedFrom = null;
+    if (window.navigation) {
+      window.navigation.addEventListener("currententrychange", (event) => {
+        traversedFrom = event.navigationType === "traverse" ? event.from : null;
+      });
+    }
     window.addEventListener(
       "popstate",
       (event) => {
+        const from = traversedFrom;
+        traversedFrom = null;
         if (!this.isNewLocation(window.location)) {
           return;
         }
         const { type, backType, id, scroll, position } = event.state || {};
         const href = window.location.href;
-        const isForward = position > this.currentHistoryPosition;
+        const isForward = from ? window.navigation.currentEntry.index > from.index : position > this.currentHistoryPosition;
         const navType = isForward ? type : backType || type;
         const direction = isForward ? "forward" : "backward";
         const detail = {
@@ -9403,7 +9435,9 @@ var LiveSocket = class {
           direction
         };
         if (!this.dispatchBeforeNavigate(detail)) {
-          if (isForward) {
+          if (from) {
+            window.navigation.traverseTo(from.key);
+          } else if (isForward) {
             history.back();
           } else {
             history.forward();
@@ -9562,10 +9596,7 @@ var LiveSocket = class {
     if (!this.isConnected() || !(this.main && this.main.isMain())) {
       return browser_default.redirect(href, flash);
     }
-    if (/^\/$|^\/[^\/]+.*$/.test(href)) {
-      const { protocol, host } = window.location;
-      href = `${protocol}//${host}${href}`;
-    }
+    href = resolveURL(href);
     const scroll = window.scrollY;
     this.withPageLoading({ to: href, kind: "redirect" }, (done) => {
       this.replaceMain(href, flash, (linkRef) => {
@@ -9852,21 +9883,119 @@ var AutoScroll = {
   }
 };
 
-// js/hooks/camera_preview.js
-var BLANK_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-function stopStreaming(image) {
-  if (!image) {
-    return;
-  }
-  image.src = BLANK_IMAGE;
-  image.removeAttribute("src");
+// ../deps/bb_camera_webrtc/assets/player.js
+function createPlayerHook(iceServers = []) {
+  return {
+    mounted() {
+      this.pc = new RTCPeerConnection({ iceServers });
+      this.pc.ontrack = ({ track }) => {
+        if (this.el.srcObject) {
+          this.el.srcObject.addTrack(track);
+        } else {
+          this.el.srcObject = new MediaStream([track]);
+        }
+      };
+      this.pc.onicecandidate = ({ candidate }) => {
+        this.pushEventTo(this.el, "webrtc_signaling", { type: "ice_candidate", data: candidate });
+      };
+      this.pc.onconnectionstatechange = () => {
+        this.el.dataset.connectionState = this.pc.connectionState;
+      };
+      this.handleEvent(`webrtc_signaling-${this.el.id}`, async ({ type, data }) => {
+        switch (type) {
+          case "sdp_offer": {
+            await this.pc.setRemoteDescription(data);
+            const answer = await this.pc.createAnswer();
+            await this.pc.setLocalDescription(answer);
+            this.pushEventTo(this.el, "webrtc_signaling", { type: "sdp_answer", data: answer });
+            break;
+          }
+          case "ice_candidate":
+            await this.pc.addIceCandidate(data);
+            break;
+        }
+      });
+    },
+    destroyed() {
+      this.pc?.close();
+    }
+  };
 }
-var CameraPreview = {
-  destroyed() {
-    stopStreaming(this.el);
+
+// js/camera/playback.js
+function iceServersFrom(element) {
+  try {
+    const servers = JSON.parse(element.dataset.iceServers || "[]");
+    return Array.isArray(servers) ? servers : [];
+  } catch {
+    return [];
+  }
+}
+function tagSignal(payload, element) {
+  return {
+    ...payload,
+    camera: element.dataset.camera,
+    session: Number(element.dataset.session)
+  };
+}
+function lowerLatency(receiver) {
+  if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
+  if ("playoutDelayHint" in receiver) receiver.playoutDelayHint = 0;
+}
+function framesPerSecond(previous, current) {
+  if (previous === null || current.frames < previous.frames) return null;
+  const seconds = (current.time - previous.time) / 1e3;
+  if (seconds <= 0) return null;
+  return (current.frames - previous.frames) / seconds;
+}
+function describePlayback(connectionState, fps) {
+  if (connectionState !== "connected" || fps === null) return connectionState;
+  return `${connectionState} \xB7 ${fps.toFixed(1)} fps`;
+}
+
+// js/hooks/camera_player.js
+var CameraPlayer = {
+  mounted() {
+    this.el.muted = true;
+    const pushEventTo = this.pushEventTo.bind(this);
+    this.pushEventTo = (target, event, payload) => pushEventTo(target, event, event === "webrtc_signaling" ? tagSignal(payload, this.el) : payload);
+    this.player = createPlayerHook(iceServersFrom(this.el));
+    this.player.mounted.call(this);
+    this.pc.addEventListener("track", ({ receiver }) => lowerLatency(receiver));
+    this.pc.addEventListener("connectionstatechange", () => this.showPlayback());
+    this.playback = document.getElementById(`${this.el.id}-playback`);
+    this.startMeter();
+    this.showPlayback();
   },
-  beforeUpdate() {
-    stopStreaming(this.el);
+  destroyed() {
+    clearInterval(this.meter);
+    if (this.frameCallback != null) this.el.cancelVideoFrameCallback(this.frameCallback);
+    this.player.destroyed.call(this);
+  },
+  // Frames presented, from requestVideoFrameCallback where the browser has
+  // it, otherwise from the playback quality counters.
+  startMeter() {
+    this.presented = null;
+    this.fps = null;
+    let previous = null;
+    if ("requestVideoFrameCallback" in this.el) {
+      const onFrame = (_now, metadata) => {
+        this.presented = metadata.presentedFrames;
+        this.frameCallback = this.el.requestVideoFrameCallback(onFrame);
+      };
+      this.frameCallback = this.el.requestVideoFrameCallback(onFrame);
+    }
+    this.meter = setInterval(() => {
+      const frames = this.presented ?? this.el.getVideoPlaybackQuality?.().totalVideoFrames;
+      if (frames == null) return;
+      const current = { frames, time: performance.now() };
+      this.fps = framesPerSecond(previous, current);
+      previous = current;
+      this.showPlayback();
+    }, 1e3);
+  },
+  showPlayback() {
+    if (this.playback) this.playback.textContent = describePlayback(this.pc.connectionState, this.fps);
   }
 };
 
@@ -31477,7 +31606,7 @@ var Visualisation = {
 // js/app.js
 var Hooks2 = {
   AutoScroll,
-  CameraPreview,
+  CameraPlayer,
   DrivePad,
   Visualisation
 };

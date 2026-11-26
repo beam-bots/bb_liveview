@@ -110,7 +110,7 @@ defmodule BB.LiveView.MixProject do
       # Cameras tab explains how to enable previews. See
       # `BB.LiveView.Camera.BBCamera`.
       optional(:bb_camera, bb_dep("~> 0.2", :bb_camera)),
-      optional(:bb_camera_webrtc, bb_dep("~> 0.1", :bb_camera_webrtc)),
+      optional(:bb_camera_webrtc, bb_dep("~> 0.1 and >= 0.1.1", :bb_camera_webrtc)),
 
       # Membrane's `ratio` still declares `decimal ~> 1.6 or ~> 2.0`, which
       # would hold this tree down on a `decimal` with open DoS advisories.
